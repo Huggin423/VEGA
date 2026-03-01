@@ -1,0 +1,104 @@
+基于置信度评估的多模态预训练模型选择方法研究
+学生姓名： 毛晓一     指导老师：树杨
+
+一、	研究背景与意义
+
+1.1	研究背景
+近年来，随着深度学习技术的高速发展，预训练模型在计算机视觉和自然语言处理领域取得了显著成果。HuggingFace，Modelscope等模型仓库中涌现了海量的模型资源。特别是在多模态领域，以CLIP、BLIP、ALBEF为代表的视觉-语言模型展现了强大的零样本和少样本迁移能力。
+面对成千上万的候选模型，如何为特定的下游任务选择最合适的预训练模型成为一个关键问题。传统的全量微调后再比较效果，计算成本昂贵且效率低下，对个人或学校用户是难以接受的。为此，高效的预训练模型选择方法应运而生。
+当前针对单模态的模型选择方法，如LogME[3]、H-Score[2] 等，难以直接应用于多模态场景。针对VLM的选择方法，如VEGA[21]，虽然利用了视觉和文本的匹配性，但存在以下缺陷。
+-	伪标签的噪声问题：现有方法通常假设模型输出的伪标签是可靠的，并基于此进行图匹配。假如模型预测存在偏差，可能会影响后续选择。
+-	缺乏不确定性度量：模型对错误预测可能持有高置信度，导致评估指标失真。已有方法不包含对校准或置信度的评估机制，使得模型选择的准确性受限。
+
+1.2	研究意义
+本研究旨在提出一种基于置信度评估的多模态预训练模型选择方法，主要实现以下几个目标：
+-	提升选择准确性：通过引入置信度校准机制，降低噪声伪标签对评估过程的干扰，从而更精准的识别出高性能模型。
+-	构建新的ground truth：不只局限于准确性高的模型，同时兼顾可靠性，让模型更可用。
+-	继承原有模型选择的优势：通过轻量级评估降低计算成本，为数据科学和工业界提高高效的工具链。
+
+二、	国内外研究现状
+本部分将对近20-30篇相关文献进行综述，主要分为以下几个维度：
+2.1 预训练模型迁移性评估
+在深度学习领域，如何高效评估预训练模型在下游任务上的迁移性能已成为核心议题。早期的研究主要致力于开发无需微调的分析性指标。Nguyen 等人提出的 LEEP [1] 是该领域的先驱工作之一，它利用经验对数似然估计来预测模型性能，但忽略了特征的可分性。随后，H-Score[2] 从特征协方差的角度入手，衡量了特征在类间的判别能力。在此基础上，LogME[3] 进一步完善了这一思路，它不依赖于微调或梯度优化，而是通过贝叶斯框架计算"最大证据（Maximum Evidence）"的对数，从而更稳健地衡量预训练特征与目标任务标签之间的兼容性。
+随着研究的深入，基于元学习和图学习的方法开始涌现。Model Spider[6] 提出了一种新颖的表征思路，将模型和数据集都映射为可学习的 Token 向量，通过轻量级相似度函数预测匹配度，极大地提升了排序效率。EMMS[20] 则采用了基于元信息的排序策略，直接依据候选模型的元数据和任务描述生成评分，实现了端到端的模型选择。为了捕捉模型间更复杂的关联，TransferGraph[7] 借鉴数据湖管理思想，构建了一张包含模型节点与数据集节点的"迁移图"，通过图神经网络预测未知的模型-数据集性能。此外，DISCO[8] 另辟蹊径，提出通过分析预训练模型特征的奇异值谱分布来衡量其可迁移性，为从谱理论角度理解模型泛化能力提供了新视角。在系统级管理方面，南京大学周志华教授团队提出的 "学件（Learnware）" 概念[10][11][12][13]，本质上是"Model Zoo + 规约"的产物，试图通过建立统一的规范，使预训练模型的选择与复用更加系统化、工程化。
+值得注意的是，针对数据分布特殊的时序模型领域，近期也涌现了许多针对性的创新选择方法。ZooCast[14] 将模型选择问题转化为向量空间中的相似度搜索问题，通过捕捉优势子集特征和构建模型-任务共嵌入（Co-embedding）来计算余弦相似度，从而生成最终的模型推荐排名。TEMPLATE[15] 则回归时序数据的本质，设计了一套可解释的解析指标来量化表征质量。TIMETIC[16] 提出了一种新颖的结构表征方法，利用模型各层的激活熵值变化轨迹来指代模型结构，并将数据特征与模型特征作为上下文输入，利用预训练的表格基础模型作为推理引擎，精准预测模型在微调后的得分表现[16][17]。
+除了直接选择单一最优模型，如何利用 Model Zoo 中的群体智慧也成为研究热点。Zoo-tuning[5] 提出了一种特征层加权融合的策略，通过轻量级门控网络为每个样本动态分配各源模型的重要性，而非简单合并权重。在大模型时代，Model-GLUE[9] 构建了包含众多评测任务的异构模型池，证明了通过基于相似度的启发式策略，可以高效地从异构模型中融合出高性能的"全能模型"，这进一步拓展了模型选择的应用边界。
+
+2.2 多模态模型与VLM选择
+相比于单模态领域，多模态预训练模型（VLM）的选择研究起步较晚，主要面临跨模态对齐的挑战。早期的尝试如 PACT (2023) 将单模态的评估指标扩展至多模态场景，但往往难以捕捉细粒度的跨模态交互。LOVM[18] 提出了一种简化思路，仅利用Text Encoder的表现来间接反映多模态模型的能力，虽然计算高效但在视觉主导的任务上存在局限。针对这一问题，SWAB[19] 在LOVM的基础上进行了改进，认为单凭文本无法全面反映模型能力，因此引入外部数据集来弥补文本与图像之间的模态鸿沟。
+为了更精细地描述VLM的能力边界，MLL[22] 为每个模型学习了一个"语义标签"，该标签描述了模型在一组代表性视觉概念上的能力强度，通过匹配下游任务需求与这些标签实现快速选择。
+目前具有代表性的工作是 VEGA[21]，该方法通过构建视觉图和文本图，并计算两者之间的匹配度来评估VLM的迁移性。然而，VEGA在构建图结构时直接使用了模型Zero-shot预测的伪标签，这种做法默认了模型的预测是绝对可靠的，忽略了预测结果中潜在的不确定性与噪声，这在域迁移场景下可能导致评估偏差。
+
+2.3 不确定性估计与模型校准
+由于预训练模型在面对未知分布（Out-of-Distribution, OOD）数据时往往表现出"过度自信（Overconfidence）"的问题，即模型对错误的预测仍赋予很高的概率值，因此引入不确定性估计与校准机制对于提升评估的鲁棒性至关重要。Guo等人 (2017) 在经典论文中指出了现代深度神经网络校准度下降的现象，并提出了 温度缩放（Temperature Scaling）[23] 这一简单而有效的后处理方法，通过调整Logits的分布来最小化期望校准误差（ECE）。
+在伪标签利用方面，Arazo等人 (2020) 的研究表明，通过对样本进行不确定性加权，可以有效减轻噪声标签对模型训练的负面影响。Rizve等人 (2021)[28] 进一步提出利用预测分布的 熵（Entropy） 或最大Softmax概率作为置信度指标，以此筛选或加权高置信度的伪标签。在多模态领域，近期研究开始探索利用图像与文本的一致性来量化不确定性，但目前大多数VLM选择方法（如前述的VEGA）尚未将这一机制纳入评估框架。将置信度评估与校准技术引入VLM选择，不仅能纠正模型在目标数据集上的预测偏差，还能通过软化伪标签构建更鲁棒的语义图结构，这正是本研究试图突破的关键切入点。
+此外，直接将传统校准方法迁移至多模态领域面临着独特的几何挑战。Liang等人[27] 的研究指出，多模态对比学习模型普遍存在"模态间隙（Modality Gap）"现象，即图像嵌入和文本嵌入在特征空间中往往分布在完全不同的区域。这种分布偏差导致原始的点积相似度数值范围可能发生偏移，使得基于 Softmax 的简单置信度估计失效。因此，近期工作开始探索利用提示词增强产生的预测方差（利用MC Dropout思想[25]） 或基于邻域的一致性[31]来作为更鲁棒的不确定性度量，这为本研究设计针对 VLM 的校准模块提供了重要的理论依据。
+
+三、	研究目标与研究内容
+3.1 研究目标
+针对现有 VLM 选择方法（如 VEGA[21]）在域迁移场景下过度依赖伪标签、缺乏对预测不确定性有效度量的局限性，本研究旨在提出一种改进的 "置信度感知多模态模型选择框架"。核心目标在于突破传统方法将模型预测视为绝对真值的假设，通过引入置信度校准机制与层级语义约束，构建更鲁棒的评估指标。最终致力于实现一种高效、无需微调的筛选机制，能够在给定目标数据集时，快速从大规模 Model Zoo 中精准定位最适配的视觉-语言模型，在降低算力成本的同时显著提升模型选择的准确性与可靠性。
+
+3.2 研究内容
+本研究将围绕"如何在高噪声伪标签环境下准确评估模型迁移性"这一核心问题，展开以下三个层面的研究：
+首先，构建基于语义拓扑保持的类别关系模型。针对现有评估指标通常假设类别间相互独立、忽略类别间语义关联的问题，本研究拟改进原有的扁平化图匹配算法。借鉴度量学习与对比学习的思想，利用文本编码器提取类别特征，计算类间相似度矩阵，构建具有语义拓扑结构的文本图。通过这种方式，约束模型在特征空间中的匹配行为，使其不仅能匹配具体的类别标签，还能在预测模糊时保持语义空间的一致性，从而在细粒度分类任务中提供更为平滑和合理的评估分数。
+其次，设计面向无监督目标域的置信度估计与伪标签加权机制。 这是本研究的核心创新点。在目标域数据无标签的情况下，直接使用 Zero-shot 预测的 Top-1 结果作为伪标签会引入噪声。本研究将放弃依赖真实标签的传统校准方法，转而在无监督设置下探索不确定性量化技术。具体而言，将利用预测分布的信息熵（Entropy）或增强视图下的一致性（Consistency）作为置信度代理指标。在此基础上，设计一种自适应的软加权机制，对高不确定性的伪标签样本进行降权处理，仅利用高置信度样本构建可靠的视觉图，以此缓解噪声干扰，构建一套更接近"Ground Truth"的加权伪标签体系。
+最后，Model Zoo的构建与实验验证。基于 SWAB[19] 等开源基准数据集构造测试集合，并依据 VEGA[21] 等前沿工作的实验设置，自行收集包含 CLIP、BLIP 等不同架构的 VLM 模型库。通过大量的对比实验与消融实验，计算本方法与 LogME[3]、VEGA[21] 等基线方法在排名相关系数上的差异，全面验证引入置信度与层级语义对提升模型选择准确性的有效性。
+
+四、	研究方法与技术路线
+首先是数据准备与模型库构建。研究将以 SWAB[19] 开源数据集为基础，该数据集涵盖了大多数主流 VLM 评估所需的场景，具有良好的完备性。针对 VLM 模型库，将依据 HuggingFace 和 OpenCLIP 等开源社区资源，收集不同参数量级和架构的预训练模型。考虑到部分模型可能存在版本差异，将建立统一的接口标准以确保推理过程的一致性。
+其次是特征提取与基线复现。在实验初期，首要任务是搭建标准化的评测框架并复现 VEGA[21] 的核心算法，确保基线指标的正确性。在此过程中，重点关注候选 VLM 在目标数据上的 Logits 输出与原始特征向量的提取与存储，为后续的不确定性分析提供数据支撑。
+关键的置信度评估与校准模块设计是技术路线中的探索性环节。针对无标签的目标域数据，研究将尝试从模型输出的 Logits 中提取预测熵作为不确定性的基础度量。为了克服多模态模型中存在的"模态间隙（Modality Gap）"[27]导致Logits分布异常的问题，计划引入基于测试时增强（Test-time Augmentation）或 MC Dropout [25]的一致性检验策略。通过计算同一图像在不同扰动下的预测方差，捕捉模型的认知不确定性（Epistemic Uncertainty）。最终，将这些不确定性指标转化为归一化的样本权重，用于后续的图匹配计算，而非依赖需要标签的后处理校准。
+紧接着是基于置信度加权的图匹配算法优化。基于提取的特征与计算出的置信度权重，对原有的图匹配算法进行重构，将其建模为加权最优传输（Weighted Optimal Transport）或加权二分图匹配问题。一方面，在构建文本图时融入类间语义距离，建立具有拓扑结构的代价矩阵；另一方面，利用置信度权重对视觉节点进行软约束，降低低置信度节点对匹配总分的影响。通过这种联合优化，期望在无真实标签的情况下，最大化评估结果的保真度与鲁棒性。
+最后利用优化后的图匹配得分作为模型能力的代理指标，对所有候选模型进行排序。通过计算该排序与模型微调后真实性能排序之间的相关系数，量化评估方法的有效性。
+
+五、	拟解决的关键问题与创新点
+5.1 拟解决的关键问题
+1.	VLM 预测不确定性的量化与转化：解决如何在无监督（无真实标签）的目标域数据上，准确量化模型预测的置信度，并将这种抽象的"不确定性"转化为模型选择算法中可计算、可利用的数学权重信号。
+2.	噪声伪标签下的高质量图结构构建：解决在伪标签存在大量噪声的情况下，如何通过层级语义约束和置信度过滤，构建出能够真实反映数据分布特征的视觉-文本匹配图，避免"错上加错"的评估偏差。
+5.2 创新点
+1.	置信度驱动的模型选择范式： 首次（在本项目语境下）将不确定性校准（Uncertainty Calibration）引入多模态预训练模型选择领域。不同于传统方法仅关注预测结果的"硬指标"，本研究强调预测结果的"可信度"，通过软加权机制提升了评估算法的可解释性与可用性。
+2.	语义增强的图匹配评分系统： 针对 VEGA 等现有方法在处理细粒度分类时的不足，创新性地在图构建阶段融入了类别间的层级语义关系。通过语义拓扑增强图匹配的鲁棒性，使得模型选择算法在面对复杂、相似类别较多的下游任务时仍能保持较高的判别力。。
+
+六、	研究计划与进度安排
+?	2025.11 - 2025.12： 完成相关文献的深度梳理，明确研究切入点；整理并清洗 SWAB 数据集，完成初步的选题报告。
+?	2026.01 - 2026.02： 搭建完整的实验评测框架，完成 VEGA 基线方法的复现；重点攻关置信度评估算法的设计，开展小规模预实验以验证不同校准方法的可行性。
+?	2026.03 - 2026.04： 完成改进算法的代码实现与参数调优；在构建的 Model Zoo 上运行全流程实验，记录并分析实验数据，进行消融实验以验证各模块贡献。
+?	2026.04 - 2026.05： 撰写毕业论文初稿，整理实验图表与数据分析结果，制作毕业设计答辩 PPT。
+?	2026.05 - 2026.06： 根据导师意见修改完善论文，完成定稿并进行毕业答辩。
+
+七、	参考文献
+[1]	Nguyen C V, Hassner T, Seeger M, et al. LEEP: A New Measure to Evaluate Transferability of Learned Representations[C]//International Conference on Machine Learning (ICML). PMLR, 2020: 7235-7245.
+[2]	Bao Y, Li Y, Huang S L, et al. An Information-Theoretic Approach to Transferability in Task Transfer Learning[C]//2019 IEEE International Conference on Image Processing (ICIP). IEEE, 2019: 2309-2313.
+[3]	You K, Liu Y, Wang J, et al. LogME: Practical Assessment of Pre-Trained Models for Transfer Learning[C]//International Conference on Machine Learning (ICML). PMLR, 2021: 12133-12143.
+[4]	You K, Liu Y, Zhang Z, et al. Ranking and Tuning Pre-Trained Models: A New Paradigm for Exploiting Model Hubs[C]//Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining. 2021: 2017-2026.
+[5]	Shu Y, Kou Z, Cao Z, et al. Zoo-Tuning: Adaptive Transfer from a Zoo of Models[C]//International Conference on Machine Learning (ICML). PMLR, 2021: 9626-9637.
+[6]	Zhang Y K, Huang T J, Ding Y X, et al. Model Spider: Learning to Rank Pre-Trained Models Efficiently[C]//Advances in Neural Information Processing Systems (NeurIPS), 2023, 36: 12845-12869.
+[7]	Li Z, Van Der Wilk H, Zhan D, et al. Model Selection with Model Zoo via Graph Learning[C]//2024 IEEE 40th International Conference on Data Engineering (ICDE). IEEE, 2024: 1296-1309.
+[8]	Zhang T, Shu Y, Chen X, et al. Assessing Pre-Trained Models for Transfer Learning Through Distribution of Spectral Components[J/OL]. arXiv preprint arXiv:2412.19085, 2024.
+[9]	Zhao X, Sun G, Cai R, et al. Model-GLUE: Democratized LLM Scaling for A Large Model Zoo in the Wild[J/OL]. arXiv preprint arXiv:2402.15286, 2024.
+[10]	Liu J D, Tan Z H, Zhou Z H. Identifying and Reusing Learnwares Across Different Label Spaces[J/OL]. arXiv preprint arXiv:2312.01018, 2023.
+[11]	Tan P, Tan Z H, Jiang Y, et al. Handling Learnwares Developed from Heterogeneous Feature Spaces without Auxiliary Data[C]//Proceedings of the 32nd International Joint Conference on Artificial Intelligence (IJCAI). 2023: 4235-4243.
+[12]	Tan Z H, Liu J D, Bi X D, et al. Beimingwu: A Learnware Dock System[J/OL]. arXiv preprint arXiv:2401.14427, 2024.
+[13]	Tan Z H, Zhao Z C, Shi H Y, et al. Learnware of Language Models: Specialized Small Language Models Can Do Big[J/OL]. arXiv preprint arXiv:2505.13425, 2025.
+[14]	Shi H N, Huang T J, Han L, et al. One-Embedding-Fits-All: Efficient Zero-Shot Time Series Forecasting by a Model Zoo[J/OL]. arXiv preprint arXiv:2509.04208, 2025.
+[15]	Wang O, Quan P, Yang K, et al. Spectral Predictability as a Fast Reliability Indicator for Time Series Forecasting Model Selection[J/OL]. arXiv preprint arXiv:2511.08884, 2025.
+[16]	Yao Q, Jin M, Zhang C, et al. Estimating Time Series Foundation Model Transferability via In-Context Learning[J/OL]. arXiv preprint arXiv:2509.23695, 2025.
+[17]	Zhang W, Chen X, Li X, et al. Unified Transferability Metrics for Time Series Foundation Models[J/OL]. arXiv preprint, 2025.
+[18]	Zohar O, Huang S C, Wang K C, et al. LOVM: Language-Only Vision Model Selection[J/OL]. arXiv preprint arXiv:2311.17743, 2023.
+[19]	Yi C, He Y H, Zhan D C, et al. Bridge the Modality and Capability Gaps in Vision-Language Model Selection[J/OL]. arXiv preprint, 2024.
+[20]	Meng F, Shao W, Peng Z, et al. Foundation Model Is Efficient Multimodal Multitask Model Selector[J/OL]. arXiv preprint, 2024.
+[21]	Ding Y, Jiang B, Zheng A, et al. Learning to Rank Pre-Trained Vision-Language Models for Downstream Tasks[J/OL]. arXiv preprint arXiv:2412.20682, 2024.
+[22]	Tan H Z, Zhou Z, Li Y F, et al. Vision-Language Model Selection and Reuse for Downstream Adaptation[J/OL]. arXiv preprint arXiv:2501.18271, 2025.
+[23]	Guo C, Pleiss G, Sun Y, et al. On Calibration of Modern Neural Networks[C]//International Conference on Machine Learning (ICML). PMLR, 2017: 1321-1330.
+[24]	Hendrycks D, Gimpel K. A Baseline for Detecting Misclassified and Out-of-Distribution Examples in Neural Networks[C]//International Conference on Learning Representations (ICLR). 2017.
+[25]	Gal Y, Ghahramani Z. Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning[C]//International Conference on Machine Learning (ICML). PMLR, 2016: 1050-1059.
+[26]	Minderer M, Djolonga J, Romijnders R, et al. Revisiting the Calibration of Modern Neural Networks[C]//Advances in Neural Information Processing Systems (NeurIPS), 2021, 34: 15682-15694.
+[27]	Liang W, Zhang Y, Kwon Y, et al. Mind the Gap: Understanding the Modality Gap in Multi-Modal Contrastive Representation Learning[C]//Advances in Neural Information Processing Systems (NeurIPS), 2022, 35: 17612-17625.
+[28]	Rizve M N, Duarte K, Rawat Y S, et al. In Defense of Pseudo-Labeling: An Uncertainty-Aware Pseudo-Label Selection Framework for Semi-Supervised Learning[C]//International Conference on Machine Learning (ICML). PMLR, 2021.
+[29]	Mukherjee S, Awadallah A H. Uncertainty-Aware Self-Training for Few-Shot Text Classification[C]//Advances in Neural Information Processing Systems (NeurIPS), 2020, 33: 21151-21162.
+[30]	Sohn K, Berthelot D, Li C L, et al. FixMatch: Simplifying Semi-Supervised Learning with Consistency and Confidence[C]//Advances in Neural Information Processing Systems (NeurIPS), 2020, 33: 596-608.
+[31]	Jang M, Chung S Y, Chung H W. Test-Time Adaptation via Self-Training with Nearest Neighbor Information[C]//International Conference on Learning Representations (ICLR). 2023.
+[32]	Gawlikowski J, Tassi C R N, Ali M, et al. A Survey of Uncertainty in Deep Neural Networks[J]. Artificial Intelligence Review, 2023, 56(Suppl 1): 1513-1589.
+[33]	Wang C. Calibration in Deep Learning: A Survey of the State-of-the-Art[J/OL]. arXiv preprint arXiv:2308.01222, 2023.
+[34]	Chang Y, Wang X, Wang J, et al. A Survey on Evaluation of Large Language Models[J]. ACM Transactions on Intelligent Systems and Technology, 2024, 15(3): 1-45.
+[35]	Geng J, Cai F, Wang Y, et al. A Survey of Confidence Estimation and Calibration in Large Language Models[C]//Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies. 2024: 6577-6595.

@@ -1,0 +1,19 @@
+Loaded 43 models and 23 datasets.
+Model                     | Dataset              | LogME Score  | GT Acc    
+---------------------------------------------------------------------------
+
+--- [DEBUG] Loading RN50_openai on cars ---
+[DEBUG] Feature data is Class-wise Dictionary. Flattening...
+[DEBUG] Loaded 196 classes from /root/mxy/SWAB/data/datasets/classnames/cars.txt
+[DEBUG] Flattened features: 196 classes, Total shape: torch.Size([8041, 1024])
+[DEBUG] Final Check -> Features: torch.Size([8041, 1024]), Logits: torch.Size([8041, 196])
+RN50_openai               | cars                 | 1.2818       | 0.5425
+
+--- [DEBUG] Loading RN101_openai on cars ---
+[DEBUG] Feature data is Class-wise Dictionary. Flattening...
+[DEBUG] Loaded 196 classes from /root/mxy/SWAB/data/datasets/classnames/cars.txt
+[DEBUG] Flattened features: 196 classes, Total shape: torch.Size([8041, 512])
+[DEBUG] Final Check -> Features: torch.Size([8041, 512]), Logits: torch.Size([8041, 196])
+RN101_openai              | cars                 | 1.2956       | 0.6111
+
+--- [DEBUG] Loading RN50x4_openai on cars ---
