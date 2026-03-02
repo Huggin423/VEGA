@@ -1,0 +1,7 @@
+# 忽略大数据目录
+data/
+model/
+ptm_stats/
+
+# 忽略大文件
+*.pt *.pth *.bin *.zip *.tar.gz
