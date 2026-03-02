@@ -3,7 +3,7 @@ import sys
 import torch
 import numpy as np
 import yaml  # 新增：用于读取 yml 配置
-from hybrid_eval.data_loader import SWABDataLoader
+from oracle_eval.data_loader import SWABDataLoader
 from LogME_official.LogME import LogME
 
 

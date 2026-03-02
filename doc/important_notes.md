@@ -27,3 +27,59 @@
 ### 目前进展
 1. 我发现SWAB虽然和VEGA的逻辑完全不同，但是像ptm_stats文件夹下的模型中间结果是可以直接拿来用的。
 2. 导师建议我使用logME方法，先确认我的方法的上限，具体的代码文件在./hybrid_eval/run_oracle.py。
+
+---
+
+## 2026-03-01 代码框架重组
+
+### 已完成工作
+
+1. **新目录结构**:
+   - `configs/`: 数据集和模型配置
+   - `data/`: 统一数据加载接口
+   - `methods/baseline/`: LogME和VEGA基线实现
+   - `evaluation/`: 评估指标（Rank Correlation, Top-k Accuracy等）
+   - `experiments/`: 实验运行脚本
+
+2. **基线方法**:
+   - LogME: 已实现，支持numba加速
+   - VEGA: 基础框架完成，需进一步完善图匹配逻辑
+
+3. **评估指标**:
+   - Spearman/Kendall/Pearson相关系数
+   - Top-k准确率
+   - 加权Kendall's tau
+   - MRR (Mean Reciprocal Rank)
+
+### 后续工作计划
+
+#### 阶段1：基线验证（1-2周）
+- [ ] 完善VEGA图匹配实现
+- [ ] 在ptm_stats数据上运行基线实验
+- [ ] 与Oracle结果对比
+
+#### 阶段2：核心创新（3-4周）
+- [ ] 实现置信度估计模块
+  - 基于熵的不确定性
+  - 预测一致性检验
+- [ ] 实现语义拓扑构建
+  - 类别嵌入提取
+  - 语义相似度图构建
+- [ ] 整合为完整方法
+
+#### 阶段3：实验验证（2-3周）
+- [ ] 在所有数据集上运行实验
+- [ ] 消融实验
+- [ ] 结果分析与可视化
+
+### 数据说明
+
+`ptm_stats/logits/` 包含约50个模型在22个数据集上的zero-shot logits：
+- 可直接用于VEGA伪标签生成
+- 需要配合features使用（从stats_on_hist_task整理）
+
+### 注意事项
+
+1. imagenet-1k和clevr_closest_object_distance的Oracle评估失败，暂不考虑
+2. VEGA实现需要参考原论文完善图匹配逻辑
+3. 当前框架与SWAB框架解耦，专注于"有图无标签"设定
