@@ -8,7 +8,7 @@
 但我深知这样的不足，所以假如对未迁移文件内容有任何疑问，都可以暂停询问，我将进行说明或上传样例数据作为参考。
 
 ## 有关毕业论文的项目
-我的论文题目是 __基于置信度评估的多模态预训练模型选择方法研究__ ，具体的开题报告可以在 /doc/opening_report 文件查看，在此我简单介绍一下。
+我的论文题目是 __基于置信度评估的多模态预训练模型选择方法研究__ ，具体的开题报告可以在 /doc/opening_report.txt 文件查看，在此我简单介绍一下。
 
 我的模型选择主要是针对VLM，在此之前已有一些工作，但是主要是围绕仅使用 text encoder，从而加快选择效率，代表性的方法有LOVM，SWAB（这两种方法的论文可以在 /doc 文件夹下的同名文件查看，我已将其识别为文本文件）。而VEGA（你可以在/doc/VEGA查看论文）使用到了image encoder，导师认为这方面的工作可以深挖，因此我的毕业论文项目需要同时考虑text encoder和image encoder。
 
@@ -124,3 +124,63 @@
 ### 现阶段问题
 
 我突然意识到VEGA不能直接使用SWAB的中间结果。主要是因为SWAB的文本是caption后的特征，可能借用了LLM来扩写。而VEGA只是使用了类别的特征。当然不排除SWAB的中间结果更有利于更优的结果，但是目前我想先搞得简单一些，所以可能需要自己重新利用model中的模型去跑各个数据集data的文本特征。这样一来，需要先修改explore_data.py，增加对data和model的认识，然后重新在ptm_stats中增加一个文件夹存储这个阶段要使用的文本特征。
+
+同时发现一个潜在的优化点，后续我再另外实现。就是文本特征其实可以用caption的平均值，但是现在为了简单一些自己重新跑一下类别的文本特征。
+
+---
+
+## 2026-03-02 解决方案：提取类别文本特征
+
+### 问题分析
+
+经过分析 `run_benchmark.py` 的输出 "Insufficient data for metrics"，发现根本原因：
+
+1. **数据源不匹配**: VEGA 论文使用的是**原始类别名**的文本嵌入，而 SWAB 的 `caption_text_feat` 是经过 LLM 扩写的 caption 特征
+2. **维度不一致**: `caption_text_feat` 中每个类别可能有多个 caption 特征，导致形状与 logits 的类别数不匹配
+
+### 解决方案
+
+创建了 `scripts/extract_class_text_features.py` 脚本：
+
+1. **正确的数据来源**: 使用各个模型的 text encoder 直接对类别名称进行编码
+2. **输出目录**: `ptm_stats/class_text_feat/` - 存储 VEGA 所需的类别文本特征
+3. **支持的模型**: 
+   - OpenAI CLIP 系列 (RN50, RN101, ViT-B-32, ViT-B-16, ViT-L-14, ViT-L-14-336)
+   - LAION 系列
+   - ConvNeXt 系列
+   - BLIP 系列
+
+### 执行步骤
+
+在服务器上执行：
+
+```bash
+cd /root/mxy/VEGA
+python scripts/extract_class_text_features.py
+```
+
+这会：
+1. 加载 `data/datasets/classnames/` 下的类别名文件
+2. 使用 open_clip 加载各个模型
+3. 提取类别文本嵌入并保存到 `ptm_stats/class_text_feat/`
+
+### 数据目录结构
+
+```
+ptm_stats/
+├── logits/                          # 已有，模型推理的 logits
+├── stats_on_hist_task/
+│   ├── img_feat/                    # 已有，图像特征
+│   ├── caption_text_feat/           # 已有，caption 特征 (SWAB 使用)
+│   └── class_level_acc/             # 已有，类别准确率
+├── class_text_feat/                 # 新建，VEGA 使用的类别文本特征
+│   ├── RN50_openai.pkl
+│   ├── ViT-B-16_openai.pkl
+│   └── ...
+```
+
+### 下一步
+
+1. 在服务器运行特征提取脚本
+2. 修改 `run_benchmark.py` 使用新的 `class_text_feat` 目录
+3. 验证 VEGA 和 LogME 的基准测试结果
