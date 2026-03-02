@@ -19,7 +19,7 @@ e:/SWAB/
 ├── configs/                    # 配置文件
 │   ├── dataset_config.py      # 数据集配置
 │   └── model_config.py        # 模型配置
-├── data/                       # 数据加载
+├── data_utils/                       # 数据加载
 │   └── data_loader.py         # 统一数据加载接口
 ├── methods/                    # 核心方法实现
 │   └── baseline/              # 基线方法

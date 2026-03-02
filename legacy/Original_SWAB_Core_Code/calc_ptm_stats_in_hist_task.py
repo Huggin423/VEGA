@@ -1,7 +1,7 @@
 import open_clip
 import yaml
 import torch
-from data.get_dataset import get_dataset
+from data_utils.get_dataset import get_dataset
 from torchvision import transforms
 from tqdm import tqdm
 import os

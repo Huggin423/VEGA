@@ -1,222 +1,474 @@
 """
-VEGA: Visual-Text Semantic Graph for Model Selection
-Reference: Based on VEGA paper methodology
-Implements graph-based model selection for VLMs.
+VEGA: Visual-Textual Graph Alignment for Unsupervised VLM Selection
+Reference: VEGA Paper - "Learning to Rank Pre-trained Vision-Language Models for Downstream Tasks"
 
 Key Idea:
-- Build visual graph from image features
-- Build semantic graph from text embeddings
-- Score models by graph matching
+- Build textual graph from class name embeddings (nodes=classes, edges=cosine similarity)
+- Build visual graph from image features (nodes=class clusters modeled as Gaussians, edges=Bhattacharyya distance)
+- Score models by measuring alignment between the two graphs at node and edge levels
 """
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import Union, Optional, Dict, List, Tuple
+from scipy.stats import pearsonr
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class VEGAScorer:
     """
     VEGA-based model selection scorer.
     
-    Computes transferability score based on semantic consistency
-    between visual features and text embeddings.
+    Implements the paper's algorithm:
+    1. Extract features using VLM encoders
+    2. Construct textual graph (K nodes, cosine similarity edges)
+    3. Construct visual graph (K Gaussian clusters, Bhattacharyya distance edges)
+    4. Compute node similarity (weighted average of normalized cosine similarity)
+    5. Compute edge similarity (Pearson correlation of edge matrices)
+    6. Final score = node_similarity + edge_similarity
     
     Usage:
-        vega = VEGAScorer()
-        score = vega.compute_score(features, text_embeddings, pseudo_labels)
+        vega = VEGAScorer(temperature=0.05)
+        score = vega.compute_score(visual_features, text_embeddings, logits)
     """
     
-    def __init__(self, k_neighbors: int = 10, sigma: float = 1.0):
+    def __init__(self, temperature: float = 0.05, min_samples_per_class: int = 1):
         """
         Initialize VEGA scorer.
         
         Args:
-            k_neighbors: Number of neighbors for graph construction
-            sigma: Bandwidth for Gaussian kernel
+            temperature: Temperature parameter for softmax normalization in node similarity
+            min_samples_per_class: Minimum samples required per class for valid computation
         """
-        self.k_neighbors = k_neighbors
-        self.sigma = sigma
+        self.temperature = temperature
+        self.min_samples_per_class = min_samples_per_class
     
-    def build_knn_graph(self, features: torch.Tensor, k: int = None) -> torch.Tensor:
-        """
-        Build k-NN graph from features.
-        
-        Args:
-            features: Feature matrix [N, D]
-            k: Number of neighbors
-            
-        Returns:
-            Adjacency matrix [N, N] with edge weights
-        """
-        if k is None:
-            k = self.k_neighbors
-            
-        # Compute pairwise distances
-        n = features.shape[0]
-        
-        # Normalize features
-        features = F.normalize(features, p=2, dim=1)
-        
-        # Compute similarity matrix
-        similarity = features @ features.T
-        
-        # Keep only k-nearest neighbors
-        values, indices = torch.topk(similarity, k=k+1, dim=1)
-        
-        # Build sparse adjacency
-        adj = torch.zeros_like(similarity)
-        for i in range(n):
-            adj[i, indices[i]] = values[i]
-        
-        # Make symmetric
-        adj = (adj + adj.T) / 2
-        
-        # Apply Gaussian kernel
-        adj = torch.exp((adj - 1) / self.sigma)
-        
-        # Remove self-loops
-        adj = adj * (1 - torch.eye(n, device=adj.device))
-        
-        return adj
+    def _to_tensor(self, x: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
+        """Convert input to tensor."""
+        if isinstance(x, np.ndarray):
+            return torch.from_numpy(x).float()
+        return x.float() if x.dtype != torch.float32 else x
     
-    def compute_laplacian(self, adj: torch.Tensor, normalized: bool = True) -> torch.Tensor:
-        """
-        Compute graph Laplacian matrix.
-        
-        Args:
-            adj: Adjacency matrix [N, N]
-            normalized: Whether to use normalized Laplacian
-            
-        Returns:
-            Laplacian matrix [N, N]
-        """
-        # Degree matrix
-        degree = adj.sum(dim=1)
-        
-        if normalized:
-            # D^{-1/2}
-            d_inv_sqrt = torch.pow(degree, -0.5)
-            d_inv_sqrt[torch.isinf(d_inv_sqrt)] = 0.0
-            D_inv_sqrt = torch.diag(d_inv_sqrt)
-            
-            # L = I - D^{-1/2} A D^{-1/2}
-            L = torch.eye(adj.shape[0], device=adj.device) - D_inv_sqrt @ adj @ D_inv_sqrt
-        else:
-            # L = D - A
-            D = torch.diag(degree)
-            L = D - adj
-        
-        return L
+    def _normalize_features(self, features: torch.Tensor) -> torch.Tensor:
+        """L2 normalize features."""
+        return F.normalize(features, p=2, dim=1)
     
-    def compute_graph_matching_score(
-        self,
-        visual_features: torch.Tensor,
-        text_embeddings: torch.Tensor,
-        pseudo_labels: torch.Tensor
-    ) -> float:
+    def compute_pseudo_labels(
+        self, 
+        visual_features: torch.Tensor, 
+        text_embeddings: torch.Tensor
+    ) -> torch.Tensor:
         """
-        Compute graph matching score between visual and semantic graphs.
+        Compute pseudo labels by zero-shot classification.
         
         Args:
             visual_features: Image features [N, D]
-            text_embeddings: Text embeddings per class [C, D]
-            pseudo_labels: Predicted labels [N]
+            text_embeddings: Text embeddings [K, D]
             
         Returns:
-            Graph matching score
+            Pseudo labels [N]
         """
-        n_samples = visual_features.shape[0]
-        n_classes = text_embeddings.shape[0]
+        # Normalize features
+        visual_features = self._normalize_features(visual_features)
+        text_embeddings = self._normalize_features(text_embeddings)
         
-        # Build visual graph
-        visual_adj = self.build_knn_graph(visual_features)
+        # Compute cosine similarity [N, K]
+        similarity = visual_features @ text_embeddings.T
         
-        # Build semantic graph (class-level)
-        # Nodes are classes, edges connect similar classes
-        semantic_adj = self.build_knn_graph(text_embeddings)
+        # Get pseudo labels
+        pseudo_labels = similarity.argmax(dim=1)
         
-        # Map visual samples to semantic nodes
-        # Count samples per class
-        class_counts = torch.zeros(n_classes, device=visual_features.device)
-        for c in range(n_classes):
-            class_counts[c] = (pseudo_labels == c).sum().float()
+        return pseudo_labels
+    
+    def build_textual_graph(self, text_embeddings: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Build textual graph.
         
-        # Compute semantic consistency
-        # For each sample, check if its neighbors have the same pseudo-label
-        consistency_scores = []
+        Nodes: text embeddings of each class [K, D]
+        Edges: cosine similarity between class embeddings [K, K]
         
-        for i in range(n_samples):
-            neighbors = torch.where(visual_adj[i] > 0)[0]
-            if len(neighbors) == 0:
+        Args:
+            text_embeddings: Text embeddings [K, D]
+            
+        Returns:
+            Tuple of (nodes, edges) where nodes=[K, D], edges=[K, K]
+        """
+        # Normalize features
+        text_embeddings = self._normalize_features(text_embeddings)
+        
+        # Node features are the text embeddings
+        nodes = text_embeddings
+        
+        # Edge weights are cosine similarity
+        edges = nodes @ nodes.T  # [K, K]
+        
+        return nodes, edges
+    
+    def build_visual_graph(
+        self, 
+        visual_features: torch.Tensor, 
+        pseudo_labels: torch.Tensor,
+        n_classes: int
+    ) -> Tuple[Dict[int, torch.Tensor], Dict[int, torch.Tensor], Dict[int, int], torch.Tensor]:
+        """
+        Build visual graph.
+        
+        Nodes: Each class is modeled as a Gaussian distribution N(mu_k, Sigma_k)
+        Edges: Bhattacharyya distance between class Gaussians
+        
+        Args:
+            visual_features: Image features [N, D]
+            pseudo_labels: Pseudo labels [N]
+            n_classes: Number of classes K
+            
+        Returns:
+            Tuple of (class_means, class_covs, class_counts, edge_matrix)
+            - class_means: Dict mapping class index to mean vector
+            - class_covs: Dict mapping class index to covariance matrix
+            - class_counts: Dict mapping class index to sample count
+            - edge_matrix: Bhattacharyya distance matrix [K, K]
+        """
+        # Normalize features
+        visual_features = self._normalize_features(visual_features)
+        
+        # Compute class statistics
+        class_means = {}
+        class_covs = {}
+        class_counts = {}
+        
+        for k in range(n_classes):
+            # Get samples assigned to class k
+            mask = (pseudo_labels == k)
+            indices = torch.where(mask)[0]
+            
+            if len(indices) < self.min_samples_per_class:
+                logger.warning(f"Class {k} has only {len(indices)} samples, skipping...")
                 continue
             
-            # Check label consistency with neighbors
-            same_label = (pseudo_labels[neighbors] == pseudo_labels[i]).float()
-            weights = visual_adj[i, neighbors]
+            class_features = visual_features[indices]
+            class_counts[k] = len(indices)
             
-            weighted_consistency = (same_label * weights).sum() / weights.sum()
-            consistency_scores.append(weighted_consistency.item())
+            # Compute mean
+            class_means[k] = class_features.mean(dim=0)
+            
+            # Compute covariance (regularized)
+            if len(indices) > 1:
+                centered = class_features - class_means[k].unsqueeze(0)
+                cov = (centered.T @ centered) / (len(indices) - 1)
+                # Add small regularization for numerical stability
+                cov = cov + 1e-6 * torch.eye(cov.shape[0], device=cov.device)
+            else:
+                # Single sample - use identity
+                cov = torch.eye(visual_features.shape[1], device=visual_features.device)
+            
+            class_covs[k] = cov
         
-        if not consistency_scores:
+        # Compute Bhattacharyya distance between all pairs of classes
+        valid_classes = list(class_means.keys())
+        n_valid = len(valid_classes)
+        
+        if n_valid < 2:
+            logger.warning("Not enough valid classes for visual graph construction")
+            return class_means, class_covs, class_counts, None
+        
+        edge_matrix = torch.zeros(n_classes, n_classes, device=visual_features.device)
+        
+        for i in valid_classes:
+            for j in valid_classes:
+                if i == j:
+                    continue
+                edge_matrix[i, j] = self._bhattacharyya_distance(
+                    class_means[i], class_covs[i],
+                    class_means[j], class_covs[j]
+                )
+        
+        return class_means, class_covs, class_counts, edge_matrix
+    
+    def _bhattacharyya_distance(
+        self, 
+        mu1: torch.Tensor, 
+        sigma1: torch.Tensor,
+        mu2: torch.Tensor, 
+        sigma2: torch.Tensor
+    ) -> float:
+        """
+        Compute Bhattacharyya distance between two Gaussian distributions.
+        
+        Bhattacharyya distance:
+        D_B = (1/8) * (mu1 - mu2)^T * Sigma^{-1} * (mu1 - mu2) 
+              + (1/2) * ln(|Sigma| / sqrt(|sigma1| * |sigma2|))
+        where Sigma = (sigma1 + sigma2) / 2
+        
+        Args:
+            mu1, sigma1: Mean and covariance of first Gaussian
+            mu2, sigma2: Mean and covariance of second Gaussian
+            
+        Returns:
+            Bhattacharyya distance (float)
+        """
+        try:
+            # Compute average covariance
+            sigma = (sigma1 + sigma2) / 2
+            
+            # Compute inverse of average covariance
+            sigma_inv = torch.linalg.inv(sigma)
+            
+            # Compute Mahalanobis-like term
+            diff = (mu1 - mu2).unsqueeze(1)  # [D, 1]
+            term1 = 0.125 * (diff.T @ sigma_inv @ diff).item()
+            
+            # Compute determinant term
+            det_sigma = torch.linalg.det(sigma)
+            det_sigma1 = torch.linalg.det(sigma1)
+            det_sigma2 = torch.linalg.det(sigma2)
+            
+            # Avoid log of negative or zero
+            if det_sigma <= 0 or det_sigma1 <= 0 or det_sigma2 <= 0:
+                # Fallback to simple distance
+                return torch.norm(mu1 - mu2).item()
+            
+            term2 = 0.5 * torch.log(det_sigma / torch.sqrt(det_sigma1 * det_sigma2)).item()
+            
+            return term1 + term2
+            
+        except Exception as e:
+            # Fallback to Euclidean distance on means
+            logger.warning(f"Bhattacharyya distance computation failed: {e}, using Euclidean fallback")
+            return torch.norm(mu1 - mu2).item()
+    
+    def compute_node_similarity(
+        self,
+        visual_features: torch.Tensor,
+        text_embeddings: torch.Tensor,
+        pseudo_labels: torch.Tensor,
+        class_counts: Dict[int, int]
+    ) -> float:
+        """
+        Compute node similarity.
+        
+        Node similarity measures the average distance from visual features 
+        within a cluster to the corresponding textual feature.
+        
+        sim_k = (1/N_k) * sum_{v in V_k} [exp(cos(v, t_k)/t) / sum_{k'} exp(cos(v, t_k')/t)]
+        s_n = (1/K) * sum_k sim_k * N_k
+        
+        Args:
+            visual_features: Image features [N, D]
+            text_embeddings: Text embeddings [K, D]
+            pseudo_labels: Pseudo labels [N]
+            class_counts: Sample count per class
+            
+        Returns:
+            Node similarity score in [0, 1]
+        """
+        # Normalize features
+        visual_features = self._normalize_features(visual_features)
+        text_embeddings = self._normalize_features(text_embeddings)
+        
+        n_classes = text_embeddings.shape[0]
+        total_samples = visual_features.shape[0]
+        
+        # Compute cosine similarity between all images and all class texts [N, K]
+        similarity = visual_features @ text_embeddings.T  # [N, K]
+        
+        # Apply temperature scaling and softmax
+        scaled_similarity = similarity / self.temperature
+        probs = F.softmax(scaled_similarity, dim=1)  # [N, K]
+        
+        # Compute per-class similarity scores
+        class_similarities = {}
+        
+        for k in range(n_classes):
+            mask = (pseudo_labels == k)
+            indices = torch.where(mask)[0]
+            
+            if len(indices) == 0:
+                continue
+            
+            # Get the probability assigned to the correct class for each sample
+            # This is the normalized similarity to the corresponding text embedding
+            class_probs = probs[indices, k]
+            
+            # Average similarity for this class
+            class_similarities[k] = class_probs.mean().item()
+        
+        if not class_similarities:
             return 0.0
         
-        return np.mean(consistency_scores)
+        # Compute weighted average
+        # s_n = (1/K) * sum_k sim_k * N_k
+        # This is equivalent to weighted mean by class size
+        total_weighted_sim = 0.0
+        total_weight = 0
+        
+        for k, sim in class_similarities.items():
+            weight = class_counts.get(k, 1)
+            total_weighted_sim += sim * weight
+            total_weight += weight
+        
+        if total_weight == 0:
+            return 0.0
+        
+        node_similarity = total_weighted_sim / total_weight
+        
+        return node_similarity
+    
+    def compute_edge_similarity(
+        self,
+        textual_edges: torch.Tensor,
+        visual_edges: torch.Tensor
+    ) -> float:
+        """
+        Compute edge similarity using Pearson correlation.
+        
+        Edge similarity measures the correlation between the edge structures
+        of textual and visual graphs.
+        
+        s_e = (PearsonCorr(vec(E^T), vec(E^V)) + 1) / 2
+        
+        Args:
+            textual_edges: Textual graph edge matrix [K, K]
+            visual_edges: Visual graph edge matrix [K, K]
+            
+        Returns:
+            Edge similarity score in [0, 1]
+        """
+        # Convert to numpy for scipy
+        if isinstance(textual_edges, torch.Tensor):
+            textual_edges = textual_edges.cpu().numpy()
+        if isinstance(visual_edges, torch.Tensor):
+            visual_edges = visual_edges.cpu().numpy()
+        
+        # Flatten the matrices (excluding diagonal)
+        n = textual_edges.shape[0]
+        
+        # Get upper triangular indices (excluding diagonal)
+        triu_indices = np.triu_indices(n, k=1)
+        
+        textual_vec = textual_edges[triu_indices]
+        visual_vec = visual_edges[triu_indices]
+        
+        if len(textual_vec) < 2:
+            return 0.5  # Neutral value if not enough edges
+        
+        # Compute Pearson correlation
+        try:
+            corr, _ = pearsonr(textual_vec, visual_vec)
+            
+            # Handle NaN
+            if np.isnan(corr):
+                return 0.5
+            
+            # Rescale from [-1, 1] to [0, 1]
+            edge_similarity = (corr + 1) / 2
+            
+            return edge_similarity
+            
+        except Exception as e:
+            logger.warning(f"Pearson correlation failed: {e}")
+            return 0.5
     
     def compute_score(
         self,
         features: Union[np.ndarray, torch.Tensor],
         text_embeddings: Union[np.ndarray, torch.Tensor],
         logits: Union[np.ndarray, torch.Tensor] = None,
-        pseudo_labels: Union[np.ndarray, torch.Tensor] = None
-    ) -> float:
+        pseudo_labels: Union[np.ndarray, torch.Tensor] = None,
+        return_details: bool = False
+    ) -> Union[float, Dict]:
         """
         Compute VEGA transferability score.
         
         Args:
             features: Image features [N, D]
-            text_embeddings: Text embeddings [C, D]
-            logits: Model predictions [N, C] (optional)
-            pseudo_labels: Pseudo labels [N] (optional, derived from logits if not provided)
+            text_embeddings: Text embeddings [K, D]
+            logits: Model predictions [N, K] (optional, used for pseudo labels if provided)
+            pseudo_labels: Pseudo labels [N] (optional, derived from features if not provided)
+            return_details: If True, return detailed breakdown of scores
             
         Returns:
-            VEGA score
+            VEGA score (float), or dict with details if return_details=True
         """
         # Convert to tensors
-        if isinstance(features, np.ndarray):
-            features = torch.from_numpy(features).float()
-        if isinstance(text_embeddings, np.ndarray):
-            text_embeddings = torch.from_numpy(text_embeddings).float()
-        if isinstance(logits, np.ndarray):
-            logits = torch.from_numpy(logits).float()
-            
-        # Derive pseudo labels if not provided
-        if pseudo_labels is None and logits is not None:
-            pseudo_labels = logits.argmax(dim=1)
-        elif isinstance(pseudo_labels, np.ndarray):
-            pseudo_labels = torch.from_numpy(pseudo_labels).long()
+        visual_features = self._to_tensor(features)
+        text_embeddings = self._to_tensor(text_embeddings)
         
-        return self.compute_graph_matching_score(features, text_embeddings, pseudo_labels)
+        n_classes = text_embeddings.shape[0]
+        
+        # Compute pseudo labels if not provided
+        if pseudo_labels is None:
+            if logits is not None:
+                logits_tensor = self._to_tensor(logits)
+                pseudo_labels = logits_tensor.argmax(dim=1)
+            else:
+                pseudo_labels = self.compute_pseudo_labels(visual_features, text_embeddings)
+        else:
+            pseudo_labels = self._to_tensor(pseudo_labels).long()
+        
+        # Step 1: Build textual graph
+        textual_nodes, textual_edges = self.build_textual_graph(text_embeddings)
+        
+        # Step 2: Build visual graph
+        class_means, class_covs, class_counts, visual_edges = self.build_visual_graph(
+            visual_features, pseudo_labels, n_classes
+        )
+        
+        # Check if visual graph construction was successful
+        if visual_edges is None or len(class_means) < 2:
+            logger.warning("Visual graph construction failed, returning fallback score")
+            if return_details:
+                return {
+                    'score': 0.0,
+                    'node_similarity': 0.0,
+                    'edge_similarity': 0.0,
+                    'valid_classes': len(class_means)
+                }
+            return 0.0
+        
+        # Step 3: Compute node similarity
+        node_similarity = self.compute_node_similarity(
+            visual_features, text_embeddings, pseudo_labels, class_counts
+        )
+        
+        # Step 4: Compute edge similarity
+        edge_similarity = self.compute_edge_similarity(textual_edges, visual_edges)
+        
+        # Step 5: Final VEGA score
+        vega_score = node_similarity + edge_similarity
+        
+        if return_details:
+            return {
+                'score': vega_score,
+                'node_similarity': node_similarity,
+                'edge_similarity': edge_similarity,
+                'valid_classes': len(class_means),
+                'class_counts': class_counts
+            }
+        
+        return vega_score
 
 
 class VEGAPlus(VEGAScorer):
     """
     Extended VEGA with confidence-weighted scoring.
     
-    Combines graph matching with prediction confidence.
+    This is an experimental extension that combines VEGA score
+    with prediction confidence for potentially better ranking.
     """
     
-    def __init__(self, k_neighbors: int = 10, sigma: float = 1.0, 
-                 confidence_weight: float = 0.5):
+    def __init__(self, temperature: float = 0.05, confidence_weight: float = 0.3):
         """
         Initialize VEGA+ scorer.
         
         Args:
-            k_neighbors: Number of neighbors for graph
-            sigma: Gaussian kernel bandwidth
-            confidence_weight: Weight for confidence term
+            temperature: Temperature for node similarity
+            confidence_weight: Weight for confidence term (0-1)
         """
-        super().__init__(k_neighbors, sigma)
+        super().__init__(temperature=temperature)
         self.confidence_weight = confidence_weight
     
     def compute_score(
@@ -224,38 +476,49 @@ class VEGAPlus(VEGAScorer):
         features: Union[np.ndarray, torch.Tensor],
         text_embeddings: Union[np.ndarray, torch.Tensor],
         logits: Union[np.ndarray, torch.Tensor] = None,
-        pseudo_labels: Union[np.ndarray, torch.Tensor] = None
-    ) -> float:
+        pseudo_labels: Union[np.ndarray, torch.Tensor] = None,
+        return_details: bool = False
+    ) -> Union[float, Dict]:
         """
         Compute VEGA+ score with confidence weighting.
         
         Args:
             features: Image features [N, D]
-            text_embeddings: Text embeddings [C, D]
-            logits: Model predictions [N, C]
+            text_embeddings: Text embeddings [K, D]
+            logits: Model predictions [N, K]
             pseudo_labels: Pseudo labels [N]
+            return_details: If True, return detailed breakdown
             
         Returns:
             VEGA+ score
         """
-        # Base VEGA score
-        base_score = super().compute_score(features, text_embeddings, logits, pseudo_labels)
+        # Get base VEGA score
+        base_result = super().compute_score(
+            features, text_embeddings, logits, pseudo_labels, return_details=True
+        )
+        
+        base_score = base_result['score']
+        
+        if logits is None:
+            if return_details:
+                base_result['confidence'] = None
+                return base_result
+            return base_score
         
         # Compute confidence
-        if logits is None:
-            return base_score
-            
-        if isinstance(logits, np.ndarray):
-            logits = torch.from_numpy(logits).float()
-        
-        # Prediction confidence
-        probs = F.softmax(logits, dim=1)
+        logits_tensor = self._to_tensor(logits)
+        probs = F.softmax(logits_tensor, dim=1)
         max_probs, _ = probs.max(dim=1)
         confidence = max_probs.mean().item()
         
         # Combine scores
         final_score = (1 - self.confidence_weight) * base_score + \
                       self.confidence_weight * confidence
+        
+        if return_details:
+            base_result['confidence'] = confidence
+            base_result['final_score'] = final_score
+            return base_result
         
         return final_score
 
@@ -265,20 +528,24 @@ def compute_vega_score(
     text_embeddings: Union[np.ndarray, torch.Tensor],
     logits: Union[np.ndarray, torch.Tensor] = None,
     pseudo_labels: Union[np.ndarray, torch.Tensor] = None,
-    k_neighbors: int = 10
+    temperature: float = 0.05
 ) -> float:
     """
     Convenience function to compute VEGA score.
     
     Args:
         features: Image features [N, D]
-        text_embeddings: Text embeddings [C, D]
+        text_embeddings: Text embeddings [K, D]
         logits: Model predictions [N, C]
         pseudo_labels: Pseudo labels [N]
-        k_neighbors: Number of neighbors
+        temperature: Temperature parameter
         
     Returns:
         VEGA score
     """
-    vega = VEGAScorer(k_neighbors=k_neighbors)
+    vega = VEGAScorer(temperature=temperature)
     return vega.compute_score(features, text_embeddings, logits, pseudo_labels)
+
+
+# Backward compatibility - keep old class name as alias
+VEGA = VEGAScorer
