@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 数据探索脚本：确认 ptm_stats 文件夹中的数据结构
