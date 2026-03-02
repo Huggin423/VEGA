@@ -15,7 +15,7 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from methods.baseline.logme import LogME
-from methods.vega import VEGAScorer, compute_vega_score
+from methods.baseline.vega import VEGAScorer, compute_vega_score
 from evaluation.metrics import compute_full_metrics, print_metrics
 
 
@@ -67,7 +67,7 @@ def run_vega_experiment(
     text_embeddings: np.ndarray,
     logits_dict: Dict[str, np.ndarray],
     ground_truth_acc: Dict[str, float],
-    k_neighbors: int = 10,
+    temperature: float = 0.05,
     verbose: bool = True
 ) -> Dict[str, float]:
     """
@@ -78,7 +78,7 @@ def run_vega_experiment(
         text_embeddings: Text embeddings [C, D]
         logits_dict: Dict mapping model name to logits [N, C]
         ground_truth_acc: Dict mapping model name to accuracy
-        k_neighbors: Number of neighbors for graph construction
+        temperature: Temperature parameter for softmax normalization
         verbose: Whether to print progress
         
     Returns:
@@ -89,7 +89,7 @@ def run_vega_experiment(
     model_names = list(features_dict.keys())
     iterator = tqdm(model_names, desc="VEGA") if verbose else model_names
     
-    vega = VEGAScorer(k_neighbors=k_neighbors)
+    vega = VEGAScorer(temperature=temperature)
     
     for model_name in iterator:
         features = features_dict[model_name]
