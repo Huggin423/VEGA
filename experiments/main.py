@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 
-from data import PTMDataLoader
+from utils.data_loader import PTMDataLoader
 from methods.baseline.logme import LogME
 from methods.baseline.vega import VEGAScorer, compute_vega_score
 from evaluation.metrics import compute_full_metrics, print_metrics

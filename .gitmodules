@@ -1,0 +1,3 @@
+[submodule "LogME_official"]
+	path = LogME_official
+	url = https://github.com/thuml/LogME.git
