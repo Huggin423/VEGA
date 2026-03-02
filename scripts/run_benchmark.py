@@ -98,7 +98,7 @@ def load_image_features(data_dir: str, model_name: str, dataset_name: str, verbo
         all_features = []
         for class_name, feat in dataset_feats.items():
             if isinstance(feat, torch.Tensor):
-                feat = feat.numpy()
+                feat = feat.cpu().numpy()
             if isinstance(feat, np.ndarray):
                 if len(feat.shape) == 1:
                     # 单个特征向量
@@ -158,7 +158,7 @@ def load_text_features(data_dir: str, model_name: str, dataset_name: str, verbos
         embeddings = []
         for class_name, emb in dataset_feats.items():
             if isinstance(emb, torch.Tensor):
-                emb = emb.numpy()
+                emb = emb.cpu().numpy()
             if isinstance(emb, np.ndarray):
                 if len(emb.shape) == 1:
                     embeddings.append(emb)
