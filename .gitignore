@@ -2,6 +2,7 @@
 data/
 model/
 ptm_stats/
+legacy/
 
 # 忽略大文件
 *.pt *.pth *.bin *.zip *.tar.gz
