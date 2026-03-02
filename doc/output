@@ -1,0 +1,221 @@
+(swab) root@43d592774d98:~/mxy/VEGA# python scripts/explore_data.py
+============================================================
+VEGA 数据探索
+============================================================
+
+============================================================
+可用的模型列表
+============================================================
+模型数量: 43
+数据集数量: 22
+
+前10个模型:
+  - BEIT3_retrieval_base_coco
+  - BEIT3_retrieval_base_f30k
+  - BEIT3_retrieval_large_coco
+  - BEIT3_retrieval_large_f30k
+  - BLIP_retrieval_base_coco
+  - BLIP_retrieval_base_f30k
+  - BLIP_retrieval_large_coco
+  - BLIP_retrieval_large_f30k
+  - RN101_openai
+  - RN50_openai
+
+所有数据集:
+  - cars
+  - cifar100
+  - clevr_closest_object_distance
+  - clevr_count_all
+  - country211
+  - diabetic_retinopathy
+  - dmlab
+  - dtd
+  - eurosat
+  - fer2013
+  - flowers
+  - gtsrb
+  - kitti_closest_vehicle_distance
+  - mnist
+  - pcam
+  - pets
+  - renderedsst2
+  - resisc45
+  - stl10
+  - sun397
+  - svhn
+  - voc2007
+============================================================
+探索 Logits 文件: /root/mxy/SWAB/ptm_stats/logits/RN50_openai__cars.pth
+============================================================
+类型: <class 'dict'>
+Keys: dict_keys(['logits', 'labels', 'acc1'])
+  logits: shape=torch.Size([8041, 196]), dtype=torch.float32
+  labels: shape=torch.Size([8041]), dtype=torch.int64
+  acc1: type=<class 'float'>
+
+============================================================
+探索图像特征文件: /root/mxy/SWAB/ptm_stats/stats_on_hist_task/img_feat/RN50_openai.pkl
+============================================================
+类型: <class 'dict'>
+数据集数量: 23
+数据集列表: ['cars', 'cifar100', 'clevr_closest_object_distance', 'clevr_count_all', 'country211', 'diabetic_retinopathy', 'dmlab', 'dtd', 'eurosat', 'fer2013', 'flowers', 'gtsrb', 'imagenet1k', 'kitti_closest_vehicle_distance', 'mnist', 'pcam', 'pets', 'renderedsst2', 'resisc45', 'stl10', 'sun397', 'svhn', 'voc2007']
+
+示例数据集 'cars':
+  Keys (前5个): ['AM General Hummer SUV 2000', 'Acura RL Sedan 2012', 'Acura TL Sedan 2012', 'Acura TL Type-S 2008', 'Acura TSX Sedan 2012']
+
+============================================================
+探索文本特征文件 (caption_text_feat): /root/mxy/SWAB/ptm_stats/stats_on_hist_task/caption_text_feat/RN50_openai.pkl
+============================================================
+类型: <class 'dict'>
+数据集数量: 23
+数据集列表: ['cars', 'cifar100', 'clevr_closest_object_distance', 'clevr_count_all', 'country211', 'diabetic_retinopathy', 'dmlab', 'dtd', 'eurosat', 'fer2013', 'flowers', 'gtsrb', 'imagenet1k', 'kitti_closest_vehicle_distance', 'mnist', 'pcam', 'pets', 'renderedsst2', 'resisc45', 'stl10', 'sun397', 'svhn', 'voc2007']
+
+示例数据集 'cars':
+  Keys (前5个): ['AM General Hummer SUV 2000', 'Acura RL Sedan 2012', 'Acura TL Sedan 2012', 'Acura TL Type-S 2008', 'Acura TSX Sedan 2012']
+
+============================================================
+探索类别级别准确率: /root/mxy/SWAB/ptm_stats/stats_on_hist_task/class_level_acc/RN50_openai.pkl
+============================================================
+类型: <class 'dict'>
+数据集数量: 22
+
+Cars 数据集:
+  类别数量: 196
+  平均准确率: 0.5450
+  前3个类别: [('AM General Hummer SUV 2000', 0.6363636363636364), ('Acura RL Sedan 2012', 0.46875), ('Acura TL Sedan 2012', 0.09302325581395349)]
+
+============================================================
+探索完成！
+============================================================
+(swab) root@43d592774d98:~/mxy/VEGA#
+
+
+(swab) root@43d592774d98:~/mxy/VEGA# python scripts/run_benchmark.py
+============================================================
+VEGA vs LogME 基准测试
+============================================================
+数据目录: /root/mxy/SWAB
+测试模型数: 9
+测试数据集: ['cars', 'cifar100', 'flowers', 'pets', 'dtd']
+
+============================================================
+数据集: cars
+============================================================
+  RN50_openai: logits✓, acc=0.545
+  RN101_openai: logits✓, acc=0.613
+  ViT-B-32_openai: logits✓, acc=0.598
+  ViT-B-16_openai: logits✓, acc=0.646
+  ViT-L-14_openai: logits✓, acc=0.777
+  ViT-B-32_laion2b_s34b_b79k: logits✓, acc=0.861
+  ViT-B-16_laion400m_e32: logits✓, acc=0.838
+  BLIP_retrieval_base_coco: logits✓, acc=0.550
+  BEIT3_retrieval_base_coco: logits✓, acc=0.716
+
+计算评估指标...
+
+============================================================
+数据集: cars
+============================================================
+VEGA: Insufficient data for metrics
+
+LogME: Insufficient data for metrics
+
+============================================================
+数据集: cifar100
+============================================================
+  RN50_openai: logits✓, acc=0.420
+  RN101_openai: logits✓, acc=0.489
+  ViT-B-32_openai: logits✓, acc=0.651
+  ViT-B-16_openai: logits✓, acc=0.682
+  ViT-L-14_openai: logits✓, acc=0.783
+  ViT-B-32_laion2b_s34b_b79k: logits✓, acc=0.758
+  ViT-B-16_laion400m_e32: logits✓, acc=0.714
+  BLIP_retrieval_base_coco: logits✓, acc=0.617
+  BEIT3_retrieval_base_coco: logits✓, acc=0.651
+
+计算评估指标...
+
+============================================================
+数据集: cifar100
+============================================================
+VEGA: Insufficient data for metrics
+
+LogME: Insufficient data for metrics
+
+============================================================
+数据集: flowers
+============================================================
+  RN50_openai: logits✓, acc=0.652
+  RN101_openai: logits✓, acc=0.652
+  ViT-B-32_openai: logits✓, acc=0.663
+  ViT-B-16_openai: logits✓, acc=0.695
+  ViT-L-14_openai: logits✓, acc=0.787
+  ViT-B-32_laion2b_s34b_b79k: logits✓, acc=0.701
+  ViT-B-16_laion400m_e32: logits✓, acc=0.670
+  BLIP_retrieval_base_coco: logits✓, acc=0.373
+  BEIT3_retrieval_base_coco: logits✓, acc=0.537
+
+计算评估指标...
+
+============================================================
+数据集: flowers
+============================================================
+VEGA: Insufficient data for metrics
+
+LogME: Insufficient data for metrics
+
+============================================================
+数据集: pets
+============================================================
+  RN50_openai: logits✓, acc=0.855
+  RN101_openai: logits✓, acc=0.866
+  ViT-B-32_openai: logits✓, acc=0.872
+  ViT-B-16_openai: logits✓, acc=0.889
+  ViT-L-14_openai: logits✓, acc=0.936
+  ViT-B-32_laion2b_s34b_b79k: logits✓, acc=0.905
+  ViT-B-16_laion400m_e32: logits✓, acc=0.892
+  BLIP_retrieval_base_coco: logits✓, acc=0.649
+  BEIT3_retrieval_base_coco: logits✓, acc=0.860
+
+计算评估指标...
+
+============================================================
+数据集: pets
+============================================================
+VEGA: Insufficient data for metrics
+
+LogME: Insufficient data for metrics
+
+============================================================
+数据集: dtd
+============================================================
+  RN50_openai: logits✓, acc=0.412
+  RN101_openai: logits✓, acc=0.437
+  ViT-B-32_openai: logits✓, acc=0.440
+  ViT-B-16_openai: logits✓, acc=0.451
+  ViT-L-14_openai: logits✓, acc=0.553
+  ViT-B-32_laion2b_s34b_b79k: logits✓, acc=0.561
+  ViT-B-16_laion400m_e32: logits✓, acc=0.510
+  BLIP_retrieval_base_coco: logits✓, acc=0.468
+  BEIT3_retrieval_base_coco: logits✓, acc=0.570
+
+计算评估指标...
+
+============================================================
+数据集: dtd
+============================================================
+VEGA: Insufficient data for metrics
+
+LogME: Insufficient data for metrics
+
+============================================================
+汇总结果
+============================================================
+
+平均 Kendall τ:
+  VEGA: nan
+  LogME: nan
+
+平均 Top-5 Recall:
+  VEGA: nan
+  LogME: nan
