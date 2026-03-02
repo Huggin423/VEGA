@@ -1,4 +1,4 @@
-### 做实验的背景
+## 做实验的背景
 我正在学校的实验室服务器开发毕业论文的实验，但是由于该服务器的系统是Ubuntu18.05，导致glibc的版本过低，无法使用vscode的ssh服务或任何vibe coing插件。
 而我没有root权限，只被限制于在 /root/mxy 文件夹下开发。因此使用Docker或更新服务器整体系统的方案是不可能的。
 
@@ -7,7 +7,7 @@
 假如后续需要了解完整的代码仓库，可以在 /doc/index.md 文件夹中查看，里面是在 /root/mxy/SWAB 下运行 _tree -L 4_ 的结果。
 但我深知这样的不足，所以假如对未迁移文件内容有任何疑问，都可以暂停询问，我将进行说明或上传样例数据作为参考。
 
-### 有关毕业论文的项目
+## 有关毕业论文的项目
 我的论文题目是 __基于置信度评估的多模态预训练模型选择方法研究__ ，具体的开题报告可以在 /doc/opening_report 文件查看，在此我简单介绍一下。
 
 我的模型选择主要是针对VLM，在此之前已有一些工作，但是主要是围绕仅使用 text encoder，从而加快选择效率，代表性的方法有LOVM，SWAB（这两种方法的论文可以在 /doc 文件夹下的同名文件查看，我已将其识别为文本文件）。而VEGA（你可以在/doc/VEGA查看论文）使用到了image encoder，导师认为这方面的工作可以深挖，因此我的毕业论文项目需要同时考虑text encoder和image encoder。
@@ -24,7 +24,7 @@
 
 综上所述，我希望能利用AI辅助我完成毕业论文实验。
 
-### 目前进展
+## 目前进展
 1. 我发现SWAB虽然和VEGA的逻辑完全不同，但是像ptm_stats文件夹下的模型中间结果是可以直接拿来用的。
 2. 导师建议我使用logME方法，先确认我的方法的上限，具体的代码文件在./hybrid_eval/run_oracle.py。
 
@@ -51,26 +51,6 @@
    - 加权Kendall's tau
    - MRR (Mean Reciprocal Rank)
 
-### 后续工作计划
-
-#### 阶段1：基线验证（1-2周）
-- [ ] 完善VEGA图匹配实现
-- [ ] 在ptm_stats数据上运行基线实验
-- [ ] 与Oracle结果对比
-
-#### 阶段2：核心创新（3-4周）
-- [ ] 实现置信度估计模块
-  - 基于熵的不确定性
-  - 预测一致性检验
-- [ ] 实现语义拓扑构建
-  - 类别嵌入提取
-  - 语义相似度图构建
-- [ ] 整合为完整方法
-
-#### 阶段3：实验验证（2-3周）
-- [ ] 在所有数据集上运行实验
-- [ ] 消融实验
-- [ ] 结果分析与可视化
 
 ### 数据说明
 
@@ -83,3 +63,59 @@
 1. imagenet-1k和clevr_closest_object_distance的Oracle评估失败，暂不考虑
 2. VEGA实现需要参考原论文完善图匹配逻辑
 3. 当前框架与SWAB框架解耦，专注于"有图无标签"设定
+
+---
+
+## 2026-03-02 复现VEGA
+
+### 已完成工作
+
+1. 复现VEGA。该项目已重命名为VEGA。因为3月1日只是搭建了框架，AI辅助生成的VEGA算法完全不是论文的意思，今天按照论文的内容重新复现，具体代码在 methods/baseline 文件夹下。目前methods/test_vega.py可以正常运行，7个基础测试均通过，接下来需要考虑和实际数据结合运行。
+
+2. 进一步重组代码框架，并结合github。因为我在本地开发，所以需要先将更新的代码push到github上，再登陆服务器git pull最新的成果。期间解决了代码仓库嵌套的问题，增加了.gitmodules文件，这样就可以正常下载LogME_official仓库了。
+
+3. 当我实际在服务器上操作时，考虑到实际数据集data、模型集model、中间结果集ptm_stats的体积太大，我将完整的数据集保留在SWAB文件夹下，并建立符号链接。具体的服务器视角需要你结合参考index_update.md和index.md，其中index_update.md是服务器上的VEGA文件夹，index.md是服务器上的SWAB文件夹。
+
+---
+
+## 2026-03-02 实验脚本准备
+
+### 已完成工作
+
+1. **数据探索脚本** (`scripts/explore_data.py`):
+   - 探索 ptm_stats 文件夹中的数据结构
+   - 检查 logits、图像特征、文本特征的格式
+   - 列出所有可用的模型和数据集
+
+2. **基准测试脚本** (`scripts/run_benchmark.py`):
+   - VEGA vs LogME 对比实验
+   - 支持 Kendall τ、Spearman、Pearson 相关系数
+   - 支持 Top-5 Recall、Top-1 Accuracy 等指标
+   - 自动加载 ground truth 准确率
+
+### 数据文件说明
+
+根据 SWAB 项目的文件结构，关键数据文件包括：
+
+| 文件类型 | 路径 | 用途 |
+|---------|------|------|
+| Logits | `ptm_stats/logits/{model}__{dataset}.pth` | VEGA 伪标签生成 |
+| 图像特征 | `ptm_stats/stats_on_hist_task/img_feat/{model}.pkl` | LogME 特征输入 |
+| 文本特征 | `ptm_stats/stats_on_hist_task/caption_text_feat/{model}.pkl` | VEGA 文本图构建 |
+| 类别准确率 | `ptm_stats/stats_on_hist_task/class_level_acc/{model}.pkl` | Ground Truth |
+
+### 下一步实验流程
+
+1. **数据探索**（在服务器运行）:
+   ```bash
+   cd /root/mxy/VEGA
+   python scripts/explore_data.py
+   ```
+
+2. **基准测试**（在服务器运行）:
+   ```bash
+   cd /root/mxy/VEGA
+   python scripts/run_benchmark.py
+   ```
+
+3. **结果分析**: 根据输出结果，对比 VEGA 和 LogME 在不同数据集上的表现
