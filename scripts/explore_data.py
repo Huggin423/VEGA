@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 数据探索脚本：确认 ptm_stats 文件夹中的数据结构
 运行环境：实验室服务器 /root/mxy/SWAB
