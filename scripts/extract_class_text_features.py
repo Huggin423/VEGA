@@ -7,9 +7,14 @@ VEGA 需要使用各个模型的 text encoder 对类别名称进行编码，
 
 本脚本会：
 1. 加载各个数据集的类别名称
-2. 使用 open_clip 加载各个模型
+2. 使用 open_clip / transformers 加载各个模型
 3. 提取类别名称的文本嵌入
 4. 保存到 ptm_stats/class_text_feat/ 目录
+
+VEGA 的三个 Benchmark:
+- Benchmark A: VLMs from CLIP Family (31个模型)
+- Benchmark B: VLMs from Various Pre-training Algorithms (17个模型)
+- Benchmark C: Combinations of VLM and Prompt Template (10模型×10模板)
 
 运行环境：实验室服务器（需要 GPU 和模型文件）
 """
@@ -50,50 +55,147 @@ OUTPUT_DIR = os.path.join(SWAB_ROOT, 'ptm_stats/class_text_feat')
 # 默认 prompt template (CLIP 风格)
 DEFAULT_TEMPLATE = "a photo of a {}."
 
-# 多模板（可以提升性能）
-CLIP_TEMPLATES = [
-    "a photo of a {}.",
-    "a cropped photo of a {}.",
-    "a photo of a {} in the wild.",
-    "a photo of a {} in the scene.",
-    "a photo of a {} on a white background.",
-    "a photo of a {} on a black background.",
-    "a photo of a {} with a person.",
-    "a photo of a {} with a dog.",
-    "a photo of a {} with a cat.",
-    "a photo of a {} with a car.",
+# ============================================================================
+# VEGA 实验设置
+# ============================================================================
+
+# VEGA 论文使用的 10 个下游数据集
+# "We conduct performance prediction on ten common-used downstream datasets"
+VEGA_DATASETS = [
+    'cifar100',       # basic image recognition Cifar-100
+    'pets',           # animal dataset Oxford Pets
+    'flowers',        # plant dataset Oxford Flowers
+    'svhn',           # street scene dataset SVHN
+    'gtsrb',          # street scene dataset GTSRB
+    'dtd',            # describable textures dataset DTD
+    'country211',     # scene classification dataset Country211
+    'sun397',         # scene classification dataset SUN397
+    'mnist',          # digit dataset MNIST
+    'fer2013',        # facial expression dataset Fer2013
 ]
 
-# 定义需要处理的模型（open_clip 格式）
-# 格式: (model_name_in_ptm_stats, open_clip_model_name, open_clip_pretrained)
-OPEN_CLIP_MODELS = [
-    # OpenAI CLIP
-    ('RN50_openai', 'RN50', 'openai'),
-    ('RN101_openai', 'RN101', 'openai'),
-    ('ViT-B-32_openai', 'ViT-B-32', 'openai'),
-    ('ViT-B-16_openai', 'ViT-B-16', 'openai'),
-    ('ViT-L-14_openai', 'ViT-L-14', 'openai'),
-    ('ViT-L-14-336_openai', 'ViT-L-14-336', 'openai'),
-    
-    # LAION models
-    ('ViT-B-32_laion2b_s34b_b79k', 'ViT-B-32', 'laion2b_s34b_b79k'),
-    ('ViT-B-16_laion400m_e32', 'ViT-B-16', 'laion400m_e32'),
-    ('ViT-L-14_laion400m_e32', 'ViT-L-14', 'laion400m_e32'),
-    ('ViT-H-14_laion2b_s32b_b79k', 'ViT-H-14', 'laion2b_s32b_b79k'),
-    ('ViT-g-14_laion2b_s12b_b42k', 'ViT-g-14', 'laion2b_s12b_b42k'),
-    
-    # ConvNeXt
-    ('convnext_base_laion400m_s13b_b51k', 'convnext_base', 'laion400m_s13b_b51k'),
-]
-
-# 数据集列表
-DATASETS = [
+# 完整数据集列表（包括 SWAB 中有的额外数据集）
+ALL_DATASETS = [
     'cars', 'cifar100', 'flowers', 'pets', 'dtd',
     'eurosat', 'gtsrb', 'mnist', 'pcam', 'stl10',
     'sun397', 'svhn', 'voc2007', 'country211',
     'fer2013', 'renderedsst2', 'resisc45',
     'clevr_count_all', 'clevr_closest_object_distance',
     'diabetic_retinopathy', 'dmlab', 'kitti_closest_vehicle_distance'
+]
+
+
+# ============================================================================
+# Benchmark A: VLMs from CLIP Family
+# 基于 ptm_stats/logits 中已有的模型
+# ============================================================================
+
+# 从 SWAB 的 ptm_stats/logits 目录中提取的模型列表
+# 这些模型已经跑过数据集，可以直接使用
+CLIP_FAMILY_MODELS = [
+    # OpenAI CLIP (ResNet 系列)
+    ('RN50_openai', 'RN50', 'openai'),
+    ('RN101_openai', 'RN101', 'openai'),
+    ('RN50x4_openai', 'RN50x4', 'openai'),
+    ('RN50x16_openai', 'RN50x16', 'openai'),
+    ('RN50x64_openai', 'RN50x64', 'openai'),
+    
+    # OpenAI CLIP (ViT 系列)
+    ('ViT-B-32_openai', 'ViT-B-32', 'openai'),
+    ('ViT-B-16_openai', 'ViT-B-16', 'openai'),
+    ('ViT-L-14_openai', 'ViT-L-14', 'openai'),
+    ('ViT-L-14-336_openai', 'ViT-L-14-336', 'openai'),
+    
+    # LAION CLIP (ViT 系列)
+    ('ViT-B-32_laion400m_e31', 'ViT-B-32-quickgelu', 'laion400m_e31'),
+    ('ViT-B-32_laion400m_e32', 'ViT-B-32-quickgelu', 'laion400m_e32'),
+    ('ViT-B-32_laion2b_s34b_b79k', 'ViT-B-32', 'laion2b_s34b_b79k'),
+    ('ViT-B-16_laion400m_e32', 'ViT-B-16', 'laion400m_e32'),
+    ('ViT-L-14_laion400m_e31', 'ViT-L-14', 'laion400m_e31'),
+    ('ViT-L-14_laion400m_e32', 'ViT-L-14', 'laion400m_e32'),
+    ('ViT-L-14_laion2b_s32b_b82k', 'ViT-L-14', 'laion2b_s32b_b82k'),
+    ('ViT-H-14_laion2b_s32b_b79k', 'ViT-H-14', 'laion2b_s32b_b79k'),
+    ('ViT-g-14_laion2b_s12b_b42k', 'ViT-g-14', 'laion2b_s12b_b42k'),
+    ('ViT-g-14_laion2b_s34b_b88k', 'ViT-g-14', 'laion2b_s34b_b88k'),
+    
+    # LAION CLIP (ConvNeXt 系列)
+    ('convnext_base_laion400m_s13b_b51k', 'convnext_base', 'laion400m_s13b_b51k'),
+    ('convnext_base_w_laion2b_s13b_b82k', 'convnext_base_w', 'laion2b_s13b_b82k'),
+    ('convnext_base_w_laion2b_s13b_b82k_augreg', 'convnext_base_w', 'laion2b_s13b_b82k_augreg'),
+    ('convnext_base_w_laion_aesthetic_s13b_b82k', 'convnext_base_w', 'laion_aesthetic_s13b_b82k'),
+    ('convnext_base_w_320_laion_aesthetic_s13b_b82k', 'convnext_base_w_320', 'laion_aesthetic_s13b_b82k'),
+    ('convnext_base_w_320_laion_aesthetic_s13b_b82k_augreg', 'convnext_base_w_320', 'laion_aesthetic_s13b_b82k_augreg'),
+    ('convnext_large_d_laion2b_s26b_b102k_augreg', 'convnext_large_d', 'laion2b_s26b_b102k_augreg'),
+    ('convnext_large_d_320_laion2b_s29b_b131k_ft', 'convnext_large_d_320', 'laion2b_s29b_b131k_ft'),
+    ('convnext_large_d_320_laion2b_s29b_b131k_ft_soup', 'convnext_large_d_320', 'laion2b_s29b_b131k_ft_soup'),
+    
+    # CoCa 模型
+    ('coca_ViT-B-32_laion2b_s13b_b90k', 'coca_ViT-B-32', 'laion2b_s13b_b90k'),
+    ('coca_ViT-L-14_laion2b_s13b_b90k', 'coca_ViT-L-14', 'laion2b_s13b_b90k'),
+    ('coca_ViT-B-32_mscoco_finetuned_laion2b_s13b_b90k', 'coca_ViT-B-32', 'mscoco_finetuned_laion2b_s13b_b90k'),
+    ('coca_ViT-L-14_mscoco_finetuned_laion2b_s13b_b90k', 'coca_ViT-L-14', 'mscoco_finetuned_laion2b_s13b_b90k'),
+    
+    # 其他 ViT 变体
+    ('ViT-B-16-plus-240_laion400m_e32', 'ViT-B-16-plus-240', 'laion400m_e32'),
+    ('ViT-B-32-quickgelu_laion400m_e32', 'ViT-B-32-quickgelu', 'laion400m_e32'),
+    ('ViT-B-32_laion2b_e16', 'ViT-B-32', 'laion2b_e16'),
+]
+
+
+# ============================================================================
+# Benchmark B: VLMs from Various Pre-training Algorithms
+# 使用用户提供的模型路径
+# ============================================================================
+
+# VEGA 论文中使用的各种预训练算法模型
+# "We collect 17 models from Hugging Face from 10 commonly used VLM pre-training algorithms"
+# 包括: ALIGN, AltCLIP, CLIP, GroupViT, SigLIP, StreetCLIP, MetaCLIP, BiomedCLIP, QuiltNet, BioCLIP
+
+# 模型路径配置 (用户提供的)
+ADDITIONAL_MODEL_PATHS = {
+    # Benchmark B models from ~/models
+    "AltCLIP": "/root/mxy/models/BAAI-AltCLIP",
+    "StreetCLIP": "/root/mxy/models/geolocal-street-clip",
+    "SigLIP_base": "/root/mxy/models/google-siglip-base-patch16-224",
+    "SigLIP_so400m": "/root/mxy/models/google-siglip-so400m-patch14-384",
+    "BioCLIP": "/root/mxy/models/imageomics-bioclip",
+    "ALIGN": "/root/mxy/models/kakaobrain-align-base",
+    "MetaCLIP": "/root/mxy/models/metaclip-b32-fullcc2.5b",
+    "BiomedCLIP": "/root/mxy/models/microsoft-BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+    "GroupViT": "/root/mxy/models/nvidia-groupvit-gcc-yfcc",
+    "QuiltNet": "/root/mxy/models/wisdomik-QuiltNet-B-32",
+}
+
+# HuggingFace 模型名称映射
+HUGGINGFACE_MODELS = {
+    "AltCLIP": "BAAI/AltCLIP",
+    "StreetCLIP": "geolocal/StreetCLIP",
+    "SigLIP_base": "google/siglip-base-patch16-224",
+    "SigLIP_so400m": "google/siglip-so400m-patch14-384",
+    "BioCLIP": "imageomics/bioclip",
+    "ALIGN": "kakaobrain/align-base",
+    "MetaCLIP": "facebook/metaclip-b32-fullcc2.5b",
+    "BiomedCLIP": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+    "GroupViT": "nvidia/groupvit-gcc-yfcc",
+    "QuiltNet": "wisdomik/QuiltNet-B-32",
+}
+
+
+# ============================================================================
+# BLIP 和 BEIT3 模型 (已在 SWAB 中有中间结果)
+# ============================================================================
+
+# 这些模型已经在 ptm_stats/logits 中有数据
+# BLIP 和 BEIT3 需要特殊处理
+BLIP_BEIT3_MODELS = [
+    'BLIP_retrieval_base_coco',
+    'BLIP_retrieval_base_f30k',
+    'BLIP_retrieval_large_coco',
+    'BLIP_retrieval_large_f30k',
+    'BEIT3_retrieval_base_coco',
+    'BEIT3_retrieval_base_f30k',
+    'BEIT3_retrieval_large_coco',
+    'BEIT3_retrieval_large_f30k',
 ]
 
 
@@ -115,11 +217,14 @@ def load_classnames(dataset_name: str) -> Optional[List[str]]:
     return classnames
 
 
-def load_all_classnames() -> Dict[str, List[str]]:
+def load_all_classnames(datasets: List[str] = None) -> Dict[str, List[str]]:
     """加载所有数据集的类别名称"""
+    if datasets is None:
+        datasets = ALL_DATASETS
+    
     all_classnames = {}
     
-    for dataset in DATASETS:
+    for dataset in datasets:
         classnames = load_classnames(dataset)
         if classnames:
             all_classnames[dataset] = classnames
@@ -129,7 +234,7 @@ def load_all_classnames() -> Dict[str, List[str]]:
 
 
 # ============================================================================
-# 模型加载
+# 模型加载和特征提取
 # ============================================================================
 
 def load_open_clip_model(model_name: str, pretrained: str, device: str = 'cuda'):
@@ -147,15 +252,11 @@ def load_open_clip_model(model_name: str, pretrained: str, device: str = 'cuda')
         return None, None
 
 
-# ============================================================================
-# 文本特征提取
-# ============================================================================
-
 def extract_text_features(
     model,
     tokenizer,
     classnames: List[str],
-    templates: List[str] = None,
+    template: str = DEFAULT_TEMPLATE,
     device: str = 'cuda'
 ) -> np.ndarray:
     """
@@ -165,60 +266,36 @@ def extract_text_features(
         model: open_clip 模型
         tokenizer: 对应的 tokenizer
         classnames: 类别名称列表
-        templates: prompt 模板列表（如果多个，会平均）
+        template: prompt 模板
         device: 设备
         
     Returns:
         np.ndarray: [K, D] 类别文本嵌入矩阵
     """
-    if templates is None:
-        templates = [DEFAULT_TEMPLATE]
-    
     model.eval()
-    text_features_list = []
     
     with torch.no_grad():
-        for template in templates:
-            # 构造 prompt
-            prompts = [template.format(c) for c in classnames]
-            
-            # Tokenize
-            tokens = tokenizer(prompts)
-            tokens = tokens.to(device)
-            
-            # 编码
-            text_features = model.encode_text(tokens)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            
-            text_features_list.append(text_features.cpu())
-    
-    # 如果有多个模板，取平均
-    if len(text_features_list) > 1:
-        text_features = torch.stack(text_features_list).mean(dim=0)
+        # 构造 prompt
+        prompts = [template.format(c) for c in classnames]
+        
+        # Tokenize
+        tokens = tokenizer(prompts)
+        tokens = tokens.to(device)
+        
+        # 编码
+        text_features = model.encode_text(tokens)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-    else:
-        text_features = text_features_list[0]
     
-    return text_features.numpy()
+    return text_features.cpu().numpy()
 
 
-def extract_features_for_model(
+def extract_features_for_openclip_model(
     model_config: Tuple[str, str, str],
     all_classnames: Dict[str, List[str]],
-    device: str = 'cuda',
-    use_multi_templates: bool = False
+    device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
     """
-    为单个模型提取所有数据集的文本特征
-    
-    Args:
-        model_config: (ptm_name, open_clip_name, pretrained)
-        all_classnames: 所有数据集的类别名
-        device: 设备
-        use_multi_templates: 是否使用多模板
-        
-    Returns:
-        Dict[dataset_name, text_features]
+    为 open_clip 模型提取所有数据集的文本特征
     """
     ptm_name, model_name, pretrained = model_config
     
@@ -230,15 +307,12 @@ def extract_features_for_model(
     if model is None:
         return {}
     
-    # 选择模板
-    templates = CLIP_TEMPLATES if use_multi_templates else [DEFAULT_TEMPLATE]
-    
     results = {}
     
     for dataset, classnames in all_classnames.items():
         try:
             features = extract_text_features(
-                model, tokenizer, classnames, templates, device
+                model, tokenizer, classnames, DEFAULT_TEMPLATE, device
             )
             results[dataset] = features
             print(f"  ✓ {dataset}: {features.shape}")
@@ -246,6 +320,143 @@ def extract_features_for_model(
             print(f"  [!] {dataset} 失败: {e}")
     
     return results
+
+
+def extract_features_for_hf_model(
+    model_name: str,
+    model_path: str,
+    all_classnames: Dict[str, List[str]],
+    device: str = 'cuda'
+) -> Dict[str, np.ndarray]:
+    """
+    为 HuggingFace 模型提取文本特征
+    
+    支持: AltCLIP, SigLIP, BioCLIP, ALIGN, etc.
+    """
+    from transformers import AutoModel, AutoProcessor
+    
+    print(f"\n处理 HuggingFace 模型: {model_name}")
+    print(f"  路径: {model_path}")
+    
+    try:
+        # 尝试从本地路径加载
+        if os.path.exists(model_path):
+            processor = AutoProcessor.from_pretrained(model_path)
+            model = AutoModel.from_pretrained(model_path).to(device)
+        else:
+            # 从 HuggingFace Hub 加载
+            hf_name = HUGGINGFACE_MODELS.get(model_name, model_name)
+            processor = AutoProcessor.from_pretrained(hf_name)
+            model = AutoModel.from_pretrained(hf_name).to(device)
+        
+        model.eval()
+        results = {}
+        
+        with torch.no_grad():
+            for dataset, classnames in all_classnames.items():
+                try:
+                    prompts = [f"a photo of a {c}" for c in classnames]
+                    
+                    inputs = processor(text=prompts, return_tensors="pt", padding=True)
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                    
+                    # 不同模型的接口可能不同
+                    if hasattr(model, 'get_text_features'):
+                        text_features = model.get_text_features(**inputs)
+                    elif hasattr(model, 'encode_text'):
+                        text_features = model.encode_text(inputs['input_ids'])
+                    else:
+                        outputs = model(**inputs)
+                        text_features = outputs.last_hidden_state[:, 0, :]
+                    
+                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                    results[dataset] = text_features.cpu().numpy()
+                    print(f"  ✓ {dataset}: {results[dataset].shape}")
+                    
+                except Exception as e:
+                    print(f"  [!] {dataset} 失败: {e}")
+        
+        return results
+        
+    except Exception as e:
+        print(f"  [!] 加载模型失败: {e}")
+        return {}
+
+
+def extract_features_for_blip(
+    model_name: str,
+    all_classnames: Dict[str, List[str]],
+    device: str = 'cuda'
+) -> Dict[str, np.ndarray]:
+    """使用 BLIP 模型提取文本特征"""
+    from transformers import BlipModel, BlipProcessor
+    
+    print(f"\n处理 BLIP 模型: {model_name}")
+    
+    # BLIP 模型的 HuggingFace 名称
+    blip_hf_names = {
+        'BLIP_retrieval_base_coco': 'Salesforce/blip-itm-base-coco',
+        'BLIP_retrieval_base_f30k': 'Salesforce/blip-itm-base-flickr',
+        'BLIP_retrieval_large_coco': 'Salesforce/blip-itm-large-coco',
+        'BLIP_retrieval_large_f30k': 'Salesforce/blip-itm-large-flickr',
+    }
+    
+    hf_name = blip_hf_names.get(model_name)
+    if not hf_name:
+        print(f"  [!] 未找到对应的 HuggingFace 模型")
+        return {}
+    
+    try:
+        processor = BlipProcessor.from_pretrained(hf_name)
+        model = BlipModel.from_pretrained(hf_name).to(device)
+        model.eval()
+        
+        results = {}
+        
+        with torch.no_grad():
+            for dataset, classnames in all_classnames.items():
+                try:
+                    prompts = [f"a photo of a {c}" for c in classnames]
+                    
+                    inputs = processor(text=prompts, return_tensors="pt", padding=True)
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                    
+                    text_features = model.get_text_features(**inputs)
+                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                    
+                    results[dataset] = text_features.cpu().numpy()
+                    print(f"  ✓ {dataset}: {results[dataset].shape}")
+                    
+                except Exception as e:
+                    print(f"  [!] {dataset} 失败: {e}")
+        
+        return results
+        
+    except Exception as e:
+        print(f"  [!] 加载 BLIP 模型失败: {e}")
+        return {}
+
+
+def extract_features_for_beit3(
+    model_name: str,
+    all_classnames: Dict[str, List[str]],
+    swab_root: str,
+    device: str = 'cuda'
+) -> Dict[str, np.ndarray]:
+    """
+    使用 BEIT3 模型提取文本特征
+    
+    BEIT3 使用 SWAB 中已有的模型文件
+    需要参考 model/beit_class.py 的实现
+    """
+    print(f"\n处理 BEIT3 模型: {model_name}")
+    
+    # BEIT3 的实现较为复杂，这里标记为需要特殊处理
+    # 可以参考 SWAB/model/beit_class.py
+    print("  [!] BEIT3 需要特殊处理，请参考 SWAB/model/beit_class.py")
+    print("  [!] 或者使用已有的 caption_text_feat 作为替代")
+    
+    return {}
 
 
 # ============================================================================
@@ -274,62 +485,6 @@ def load_existing_features(model_name: str) -> Dict[str, np.ndarray]:
 
 
 # ============================================================================
-# BLIP 和 BEIT3 模型处理
-# ============================================================================
-
-def extract_blip_features(
-    all_classnames: Dict[str, List[str]],
-    device: str = 'cuda'
-) -> Dict[str, Dict[str, np.ndarray]]:
-    """
-    使用 BLIP 模型提取文本特征
-    需要使用 transformers 库
-    """
-    try:
-        from transformers import BlipModel, BlipProcessor
-    except ImportError:
-        print("[!] 需要安装 transformers: pip install transformers")
-        return {}
-    
-    blip_models = [
-        ('BLIP_retrieval_base_coco', 'Salesforce/blip-itm-base-coco'),
-        ('BLIP_retrieval_large_coco', 'Salesforce/blip-itm-large-coco'),
-    ]
-    
-    results = {}
-    
-    for ptm_name, hf_name in blip_models:
-        print(f"\n处理 BLIP 模型: {ptm_name}")
-        
-        try:
-            processor = BlipProcessor.from_pretrained(hf_name)
-            model = BlipModel.from_pretrained(hf_name).to(device)
-            model.eval()
-            
-            model_features = {}
-            
-            with torch.no_grad():
-                for dataset, classnames in all_classnames.items():
-                    prompts = [f"a photo of a {c}" for c in classnames]
-                    
-                    inputs = processor(text=prompts, return_tensors="pt", padding=True)
-                    inputs = {k: v.to(device) for k, v in inputs.items()}
-                    
-                    text_features = model.get_text_features(**inputs)
-                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                    
-                    model_features[dataset] = text_features.cpu().numpy()
-                    print(f"  ✓ {dataset}: {model_features[dataset].shape}")
-            
-            results[ptm_name] = model_features
-            
-        except Exception as e:
-            print(f"  [!] 加载失败: {e}")
-    
-    return results
-
-
-# ============================================================================
 # 主函数
 # ============================================================================
 
@@ -352,36 +507,84 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print(f"\n输出目录: {OUTPUT_DIR}")
     
-    # 处理 open_clip 模型
+    # =========================================================================
+    # Benchmark A: CLIP Family
+    # =========================================================================
     print("\n" + "=" * 70)
-    print("处理 OpenCLIP 模型")
+    print("Benchmark A: VLMs from CLIP Family")
     print("=" * 70)
     
-    for model_config in OPEN_CLIP_MODELS:
+    for model_config in CLIP_FAMILY_MODELS:
         ptm_name = model_config[0]
         
         # 检查是否已存在
         existing = load_existing_features(ptm_name)
         if existing:
-            print(f"\n[跳过] {ptm_name} 已存在")
+            print(f"\n[跳过] {ptm_name} 已存在 ({len(existing)} 数据集)")
             continue
         
         # 提取特征
-        features = extract_features_for_model(
-            model_config, all_classnames, device, use_multi_templates=False
-        )
+        features = extract_features_for_openclip_model(model_config, all_classnames, device)
         
         if features:
             save_text_features(ptm_name, features)
     
-    # 处理 BLIP 模型（可选）
+    # =========================================================================
+    # Benchmark B: Various Pre-training Algorithms
+    # =========================================================================
     print("\n" + "=" * 70)
-    print("处理 BLIP 模型 (需要 transformers)")
+    print("Benchmark B: VLMs from Various Pre-training Algorithms")
     print("=" * 70)
     
-    blip_features = extract_blip_features(all_classnames, device)
-    for ptm_name, features in blip_features.items():
-        save_text_features(ptm_name, features)
+    for model_name in ADDITIONAL_MODEL_PATHS.keys():
+        # 检查是否已存在
+        existing = load_existing_features(model_name)
+        if existing:
+            print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
+            continue
+        
+        model_path = ADDITIONAL_MODEL_PATHS[model_name]
+        features = extract_features_for_hf_model(model_name, model_path, all_classnames, device)
+        
+        if features:
+            save_text_features(model_name, features)
+    
+    # =========================================================================
+    # BLIP 模型
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("BLIP 模型")
+    print("=" * 70)
+    
+    for model_name in BLIP_BEIT3_MODELS:
+        if model_name.startswith('BLIP'):
+            # 检查是否已存在
+            existing = load_existing_features(model_name)
+            if existing:
+                print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
+                continue
+            
+            features = extract_features_for_blip(model_name, all_classnames, device)
+            if features:
+                save_text_features(model_name, features)
+    
+    # =========================================================================
+    # BEIT3 模型
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("BEIT3 模型")
+    print("=" * 70)
+    
+    for model_name in BLIP_BEIT3_MODELS:
+        if model_name.startswith('BEIT3'):
+            existing = load_existing_features(model_name)
+            if existing:
+                print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
+                continue
+            
+            features = extract_features_for_beit3(model_name, all_classnames, SWAB_ROOT, device)
+            if features:
+                save_text_features(model_name, features)
     
     print("\n" + "=" * 70)
     print("完成！")
@@ -417,8 +620,32 @@ def verify_features():
             data = pickle.load(fp)
         
         print(f"\n{f}:")
-        for dataset, features in data.items():
+        for dataset, features in sorted(data.items()):
             print(f"  {dataset}: shape={features.shape}, dtype={features.dtype}")
+
+
+def print_vega_setup():
+    """打印 VEGA 实验设置"""
+    print("\n" + "=" * 70)
+    print("VEGA 实验设置")
+    print("=" * 70)
+    
+    print("\n下游数据集 (10个):")
+    for ds in VEGA_DATASETS:
+        print(f"  - {ds}")
+    
+    print("\nBenchmark A: VLMs from CLIP Family")
+    print(f"  模型数: {len(CLIP_FAMILY_MODELS)}")
+    print("  包含: OpenAI CLIP (ResNet + ViT), LAION CLIP (ViT + ConvNeXt), CoCa")
+    
+    print("\nBenchmark B: VLMs from Various Pre-training Algorithms")
+    print(f"  模型数: {len(ADDITIONAL_MODEL_PATHS)}")
+    print("  包含: AltCLIP, StreetCLIP, SigLIP, BioCLIP, ALIGN, MetaCLIP, BiomedCLIP, GroupViT, QuiltNet")
+    
+    print("\nBLIP 和 BEIT3 模型 (已在 SWAB 中有数据):")
+    print(f"  模型数: {len(BLIP_BEIT3_MODELS)}")
+    for m in BLIP_BEIT3_MODELS:
+        print(f"  - {m}")
 
 
 if __name__ == '__main__':
@@ -426,8 +653,11 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--verify', action='store_true', help='仅验证已有特征')
+    parser.add_argument('--setup', action='store_true', help='打印 VEGA 实验设置')
     parser.add_argument('--swab_root', type=str, default=SWAB_ROOT, help='SWAB 根目录')
     parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR, help='输出目录')
+    parser.add_argument('--benchmark', type=str, choices=['A', 'B', 'ALL'], default='ALL',
+                        help='运行哪个 benchmark (A=CLIP Family, B=Various Pre-training, ALL=全部)')
     args = parser.parse_args()
     
     # 更新路径
@@ -435,7 +665,9 @@ if __name__ == '__main__':
     CLASSNAMES_DIR = os.path.join(SWAB_ROOT, 'data/datasets/classnames')
     OUTPUT_DIR = args.output_dir
     
-    if args.verify:
+    if args.setup:
+        print_vega_setup()
+    elif args.verify:
         verify_features()
     else:
         main()
