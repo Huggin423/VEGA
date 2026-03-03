@@ -1,12 +1,3 @@
-## 做实验的背景
-我正在学校的实验室服务器开发毕业论文的实验，但是由于该服务器的系统是Ubuntu18.05，导致glibc的版本过低，无法使用vscode的ssh服务或任何vibe coing插件。
-而我没有root权限，只被限制于在 /root/mxy 文件夹下开发。因此使用Docker或更新服务器整体系统的方案是不可能的。
-
-为了解决这个问题，方便我的后续实验，我将在本地开发关键代码文件，但是在实验室服务器上运行并验证。
-毕业论文的实验代码在 /root/mxy/SWAB 下。由于上述原因，我没有迁移数据集文件夹 /data，模型文件夹 /model，以及模型运行数据集后的中间结果 /ptm/stats，它们的体积过大，本地机器无法支持。
-假如后续需要了解完整的代码仓库，可以在 /doc/index.md 文件夹中查看，里面是在 /root/mxy/SWAB 下运行 _tree -L 4_ 的结果。
-但我深知这样的不足，所以假如对未迁移文件内容有任何疑问，都可以暂停询问，我将进行说明或上传样例数据作为参考。
-
 ## 有关毕业论文的项目
 我的论文题目是 __基于置信度评估的多模态预训练模型选择方法研究__ ，具体的开题报告可以在 /doc/opening_report.txt 文件查看，在此我简单介绍一下。
 
@@ -31,6 +22,15 @@
 ---
 
 ## 2026-03-01 代码框架重组
+
+### 现阶段问题
+我正在学校的实验室服务器开发毕业论文的实验，但是由于该服务器的系统是Ubuntu18.05，导致glibc的版本过低，无法使用vscode的ssh服务或任何vibe coing插件。
+而我没有root权限，只被限制于在 /root/mxy 文件夹下开发。因此使用Docker或更新服务器整体系统的方案是不可能的。
+
+为了解决这个问题，方便我的后续实验，我将在本地开发关键代码文件，但是在实验室服务器上运行并验证。
+毕业论文的实验代码在 /root/mxy/SWAB 下。由于上述原因，我没有迁移数据集文件夹 /data，模型文件夹 /model，以及模型运行数据集后的中间结果 /ptm/stats，它们的体积过大，本地机器无法支持。
+假如后续需要了解完整的代码仓库，可以在 /doc/index.md 文件夹中查看，里面是在 /root/mxy/SWAB 下运行 _tree -L 4_ 的结果。
+但我深知这样的不足，所以假如对未迁移文件内容有任何疑问，都可以暂停询问，我将进行说明或上传样例数据作为参考。
 
 ### 已完成工作
 
@@ -68,119 +68,21 @@
 
 ## 2026-03-02 复现VEGA
 
-### 已完成工作
-
-1. 复现VEGA。该项目已重命名为VEGA。因为3月1日只是搭建了框架，AI辅助生成的VEGA算法完全不是论文的意思，今天按照论文的内容重新复现，具体代码在 methods/baseline 文件夹下。目前methods/test_vega.py可以正常运行，7个基础测试均通过，接下来需要考虑和实际数据结合运行。
-
-2. 进一步重组代码框架，并结合github。因为我在本地开发，所以需要先将更新的代码push到github上，再登陆服务器git pull最新的成果。期间解决了代码仓库嵌套的问题，增加了.gitmodules文件，这样就可以正常下载LogME_official仓库了。
-
-3. 当我实际在服务器上操作时，考虑到实际数据集data、模型集model、中间结果集ptm_stats的体积太大，我将完整的数据集保留在SWAB文件夹下，并建立符号链接。具体的服务器视角需要你结合参考index_update.md和index.md，其中index_update.md是服务器上的VEGA文件夹，index.md是服务器上的SWAB文件夹。
-
----
-
-## 2026-03-02 实验脚本准备
-
-### 已完成工作
-
-1. **数据探索脚本** (`scripts/explore_data.py`):
-   - 探索 ptm_stats 文件夹中的数据结构
-   - 检查 logits、图像特征、文本特征的格式
-   - 列出所有可用的模型和数据集
-
-2. **基准测试脚本** (`scripts/run_benchmark.py`):
-   - VEGA vs LogME 对比实验
-   - 支持 Kendall τ、Spearman、Pearson 相关系数
-   - 支持 Top-5 Recall、Top-1 Accuracy 等指标
-   - 自动加载 ground truth 准确率
-
-### 数据文件说明
-
-根据 SWAB 项目的文件结构，关键数据文件包括：
-
-| 文件类型 | 路径 | 用途 |
-|---------|------|------|
-| Logits | `ptm_stats/logits/{model}__{dataset}.pth` | VEGA 伪标签生成 |
-| 图像特征 | `ptm_stats/stats_on_hist_task/img_feat/{model}.pkl` | LogME 特征输入 |
-| 文本特征 | `ptm_stats/stats_on_hist_task/caption_text_feat/{model}.pkl` | VEGA 文本图构建 |
-| 类别准确率 | `ptm_stats/stats_on_hist_task/class_level_acc/{model}.pkl` | Ground Truth |
-
-### 下一步实验流程
-
-1. **数据探索**（在服务器运行）:
-   ```bash
-   cd /root/mxy/VEGA
-   python scripts/explore_data.py
-   ```
-
-2. **基准测试**（在服务器运行）:
-   ```bash
-   cd /root/mxy/VEGA
-   python scripts/run_benchmark.py
-   ```
-
-3. **结果分析**: 根据输出结果，对比 VEGA 和 LogME 在不同数据集上的表现
-
-
 ### 现阶段问题
 
 我突然意识到VEGA不能直接使用SWAB的中间结果。主要是因为SWAB的文本是caption后的特征，可能借用了LLM来扩写。而VEGA只是使用了类别的特征。当然不排除SWAB的中间结果更有利于更优的结果，但是目前我想先搞得简单一些，所以可能需要自己重新利用model中的模型去跑各个数据集data的文本特征。这样一来，需要先修改explore_data.py，增加对data和model的认识，然后重新在ptm_stats中增加一个文件夹存储这个阶段要使用的文本特征。
 
 同时发现一个潜在的优化点，后续我再另外实现。就是文本特征其实可以用caption的平均值，但是现在为了简单一些自己重新跑一下类别的文本特征。
 
+### 已完成工作
+
+1. 复现VEGA。该项目已重命名为VEGA。因为3月1日只是搭建了框架，AI辅助生成的VEGA算法完全不是论文的意思，今天按照论文的内容重新复现，具体代码在 methods/baseline 文件夹下。目前methods/test_vega.py可以正常运行，7个基础测试均通过，接下来需要考虑和实际数据结合运行。
+
+2. 当我实际在服务器上操作时，考虑到实际数据集data、模型集model、中间结果集ptm_stats的体积太大，我将完整的数据集保留在SWAB文件夹下，并建立符号链接。具体的服务器视角需要你结合参考index_update.md和index.md，其中index_update.md是服务器上的VEGA文件夹，index.md是服务器上的SWAB文件夹。
+
+3. 解决了实验室机器无法使用vscode的ssh连接的问题。现阶段可以直接在服务器上开发，并使用cline，后续将舍弃本地开发的阶段，但是github会同步更新：https://github.com/Huggin423/VEGA.git
+
+4. 重新利用已有的model和data跑一下文本特征，尽量符合原始VEGA的要求，后续可以尝试优化结合SWAB/LOVM中获取更优质文本特征的方式。
+
 ---
 
-## 2026-03-02 解决方案：提取类别文本特征
-
-### 问题分析
-
-经过分析 `run_benchmark.py` 的输出 "Insufficient data for metrics"，发现根本原因：
-
-1. **数据源不匹配**: VEGA 论文使用的是**原始类别名**的文本嵌入，而 SWAB 的 `caption_text_feat` 是经过 LLM 扩写的 caption 特征
-2. **维度不一致**: `caption_text_feat` 中每个类别可能有多个 caption 特征，导致形状与 logits 的类别数不匹配
-
-### 解决方案
-
-创建了 `scripts/extract_class_text_features.py` 脚本：
-
-1. **正确的数据来源**: 使用各个模型的 text encoder 直接对类别名称进行编码
-2. **输出目录**: `ptm_stats/class_text_feat/` - 存储 VEGA 所需的类别文本特征
-3. **支持的模型**: 
-   - OpenAI CLIP 系列 (RN50, RN101, ViT-B-32, ViT-B-16, ViT-L-14, ViT-L-14-336)
-   - LAION 系列
-   - ConvNeXt 系列
-   - BLIP 系列
-
-### 执行步骤
-
-在服务器上执行：
-
-```bash
-cd /root/mxy/VEGA
-python scripts/extract_class_text_features.py
-```
-
-这会：
-1. 加载 `data/datasets/classnames/` 下的类别名文件
-2. 使用 open_clip 加载各个模型
-3. 提取类别文本嵌入并保存到 `ptm_stats/class_text_feat/`
-
-### 数据目录结构
-
-```
-ptm_stats/
-├── logits/                          # 已有，模型推理的 logits
-├── stats_on_hist_task/
-│   ├── img_feat/                    # 已有，图像特征
-│   ├── caption_text_feat/           # 已有，caption 特征 (SWAB 使用)
-│   └── class_level_acc/             # 已有，类别准确率
-├── class_text_feat/                 # 新建，VEGA 使用的类别文本特征
-│   ├── RN50_openai.pkl
-│   ├── ViT-B-16_openai.pkl
-│   └── ...
-```
-
-### 下一步
-
-1. 在服务器运行特征提取脚本
-2. 修改 `run_benchmark.py` 使用新的 `class_text_feat` 目录
-3. 验证 VEGA 和 LogME 的基准测试结果
