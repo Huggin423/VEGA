@@ -2,6 +2,6 @@
 data/
 model/
 ptm_stats/
-
+models/
 # 忽略大文件
 *.pt *.pth *.bin *.zip *.tar.gz
