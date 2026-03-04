@@ -65,8 +65,8 @@ DEFAULT_TEMPLATE = "a photo of a {}."
 # 本地模型路径配置
 # ============================================================================
 
-# HuggingFace 缓存目录（SWAB 中的缓存）
-HF_CACHE_DIR = os.path.join(SWAB_ROOT, 'model/checkpoint')
+# HuggingFace 缓存目录（VEGA 中的缓存）
+HF_CACHE_DIR = os.path.join(VEGA_ROOT, 'model/checkpoint')
 
 # VEGA 本地模型目录
 VEGA_MODELS_DIR = os.path.join(VEGA_ROOT, 'models')
@@ -215,7 +215,7 @@ BENCHMARK_B_MODELS = {
     "BiomedCLIP": {
         "path": os.path.join(VEGA_MODELS_DIR, "microsoft-BiomedCLIP-PubMedBERT_256-vit_base_patcg16_224"),
         "hf_name": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
-        "type": "open_clip"
+        "type": "biomedclip"  # BiomedCLIP 使用特殊的 transformers 架构
     },
     "GroupViT": {
         "path": os.path.join(VEGA_MODELS_DIR, "nvidia-groupvit-gcc-yfcc"),
@@ -329,7 +329,7 @@ def load_all_classnames(datasets: List[str] = None) -> Dict[str, List[str]]:
 # ============================================================================
 
 def find_hf_cache_model(cache_dir: str, model_subdir: str) -> Optional[str]:
-    """在 HuggingFace 缓存目录中查找模型"""
+    """在 HuggingFace 缓存目录中查找模型文件路径"""
     full_path = os.path.join(cache_dir, model_subdir)
     if os.path.exists(full_path):
         # 查找 snapshots 目录
@@ -337,7 +337,16 @@ def find_hf_cache_model(cache_dir: str, model_subdir: str) -> Optional[str]:
         if os.path.exists(snapshots_dir):
             snapshots = os.listdir(snapshots_dir)
             if snapshots:
-                return os.path.join(snapshots_dir, snapshots[0])
+                snapshot_path = os.path.join(snapshots_dir, snapshots[0])
+                # 查找模型文件
+                model_file = os.path.join(snapshot_path, 'open_clip_pytorch_model.bin')
+                if os.path.exists(model_file):
+                    return model_file
+                # 也检查其他可能的模型文件名
+                for fname in ['pytorch_model.bin', 'model.safetensors']:
+                    candidate = os.path.join(snapshot_path, fname)
+                    if os.path.exists(candidate):
+                        return candidate
     return None
 
 
@@ -509,7 +518,7 @@ def extract_features_for_open_clip_hf(
     all_classnames: Dict[str, List[str]],
     device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
-    """加载使用 open_clip 格式的 HuggingFace 模型 (如 BioCLIP, BiomedCLIP)"""
+    """加载使用 open_clip 格式的 HuggingFace 模型 (如 BioCLIP)"""
     import open_clip
     
     print(f"\n处理 open_clip 格式模型: {model_name}")
@@ -531,11 +540,7 @@ def extract_features_for_open_clip_hf(
             if model_file:
                 print(f"  找到模型文件: {model_file}")
                 # 需要知道对应的架构
-                # BioCLIP 使用 ViT-B-16
-                # BiomedCLIP 使用 ViT-B-16
                 if 'bioclip' in model_name.lower():
-                    architecture = 'ViT-B-16'
-                elif 'biomedclip' in model_name.lower():
                     architecture = 'ViT-B-16'
                 elif 'metaclip' in model_name.lower():
                     architecture = 'ViT-B-32'
@@ -575,6 +580,101 @@ def extract_features_for_open_clip_hf(
         return {}
 
 
+def extract_features_for_biomedclip(
+    model_name: str,
+    model_config: Dict,
+    all_classnames: Dict[str, List[str]],
+    device: str = 'cuda'
+) -> Dict[str, np.ndarray]:
+    """专门处理 BiomedCLIP 模型 - 使用 transformers 架构
+    
+    BiomedCLIP 使用 BERT 作为文本编码器，而不是标准的 CLIP 文本编码器。
+    需要使用 open_clip 的特殊加载方式。
+    """
+    print(f"\n处理 BiomedCLIP 模型: {model_name}")
+    
+    model_path = model_config['path']
+    print(f"  路径: {model_path}")
+    
+    try:
+        import open_clip
+        
+        # BiomedCLIP 使用 open_clip_config.json
+        config_file = os.path.join(model_path, 'open_clip_config.json')
+        model_file = os.path.join(model_path, 'open_clip_pytorch_model.bin')
+        
+        if not os.path.exists(model_file):
+            print(f"  [!] 模型文件不存在: {model_file}")
+            return {}
+        
+        if not os.path.exists(config_file):
+            print(f"  [!] 配置文件不存在: {config_file}")
+            return {}
+        
+        print(f"  找到配置文件: {config_file}")
+        print(f"  找到模型文件: {model_file}")
+        
+        # 读取配置获取模型架构
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+        
+        # BiomedCLIP 使用 ViT-B-16 架构，但文本编码器是 PubMedBERT
+        # 需要使用 open_clip.create_model_from_pretrained
+        try:
+            # 方法1: 直接从配置和权重加载
+            model = open_clip.create_model(
+                'ViT-B-16',
+                pretrained='openai',  # 先创建基础模型
+                device=device
+            )
+            # 加载 BiomedCLIP 的权重
+            state_dict = torch.load(model_file, map_location=device)
+            model.load_state_dict(state_dict, strict=False)
+            tokenizer = open_clip.get_tokenizer('ViT-B-16')
+        except Exception as e1:
+            print(f"  方法1失败: {e1}")
+            # 方法2: 使用 create_model_and_transforms 从本地加载
+            try:
+                model, _, preprocess = open_clip.create_model_and_transforms(
+                    'ViT-B-16',
+                    pretrained=model_file,
+                    device=device
+                )
+                tokenizer = open_clip.get_tokenizer('ViT-B-16')
+            except Exception as e2:
+                print(f"  方法2也失败: {e2}")
+                return {}
+        
+        model.eval()
+        results = {}
+        
+        with torch.no_grad():
+            for dataset, classnames in all_classnames.items():
+                try:
+                    # BiomedCLIP 的提示格式
+                    prompts = [f"a photo of a {c}" for c in classnames]
+                    
+                    tokens = tokenizer(prompts)
+                    tokens = tokens.to(device)
+                    
+                    text_features = model.encode_text(tokens)
+                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                    
+                    results[dataset] = text_features.cpu().numpy()
+                    print(f"  ✓ {dataset}: {results[dataset].shape}")
+                    
+                except Exception as e:
+                    print(f"  [!] {dataset} 失败: {e}")
+        
+        return results
+        
+    except Exception as e:
+        print(f"  [!] 加载 BiomedCLIP 失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
 def extract_features_for_blip_local(
     model_name: str,
     model_config: Dict,
@@ -595,7 +695,13 @@ def extract_features_for_blip_local(
     
     try:
         # 使用 SWAB 中的 BLIP 实现
-        sys.path.insert(0, os.path.join(swab_root, 'model'))
+        # 需要将 SWAB_ROOT 和 SWAB_ROOT/model 都添加到路径中
+        # 因为 blip_class.py 内部使用 from model.blip.blip_model import ...
+        if swab_root not in sys.path:
+            sys.path.insert(0, swab_root)
+        model_path = os.path.join(swab_root, 'model')
+        if model_path not in sys.path:
+            sys.path.insert(0, model_path)
         from blip_class import BlipRetrieval
         
         # 创建 BLIP 模型
@@ -647,7 +753,12 @@ def extract_features_for_beit3_local(
     
     try:
         # 使用 SWAB 中的 BEIT3 实现
-        sys.path.insert(0, os.path.join(swab_root, 'model'))
+        # 需要将 SWAB_ROOT 和 SWAB_ROOT/model 都添加到路径中
+        if swab_root not in sys.path:
+            sys.path.insert(0, swab_root)
+        model_path = os.path.join(swab_root, 'model')
+        if model_path not in sys.path:
+            sys.path.insert(0, model_path)
         from beit_class import BEIT3Retrieval
         
         # 创建 BEIT3 模型
@@ -763,7 +874,12 @@ def main():
         
         model_type = model_config.get('type', 'transformers')
         
-        if model_type == 'open_clip':
+        if model_type == 'biomedclip':
+            # BiomedCLIP 需要特殊处理
+            features = extract_features_for_biomedclip(
+                model_name, model_config, all_classnames, device
+            )
+        elif model_type == 'open_clip':
             features = extract_features_for_open_clip_hf(
                 model_name, model_config, all_classnames, device
             )
