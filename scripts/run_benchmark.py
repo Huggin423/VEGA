@@ -12,6 +12,13 @@ VEGA vs LogME 基准测试脚本（改进版）
 - 2026-03-06: 添加详细进度日志，显示每个计算步骤
 - 2026-03-06: 添加 VEGA 内部进度显示（边相似度计算）
 - 2026-03-06: 改进错误处理，捕获并记录失败的模型
+- 2026-03-06: 【重要】切换到优化版 VEGAScorer 类实现
+  - 使用 methods/baseline/vega.py 中的 VEGAScorer 类
+  - PCA 降维/白化预处理（去相关，满足对角假设）
+  - 对角协方差近似（Diagonal Covariance）- 避免矩阵求逆
+  - 向量化的 Bhattacharyya 距离计算 - 无双重 for 循环
+  - 复用 Cosine Similarity 矩阵
+  - 数值稳定性保护（epsilon）
 """
 
 import os
@@ -32,6 +39,9 @@ warnings.filterwarnings('ignore')
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+# 导入优化后的 VEGA 实现
+from methods.baseline.vega import VEGAScorer
 
 # ============================================================================
 # 配置
@@ -364,176 +374,73 @@ def compute_vega_score_with_progress(
     model_name: str = ""
 ) -> Tuple[Optional[float], Dict]:
     """
-    计算 VEGA 分数（带详细进度日志）
+    计算 VEGA 分数（使用优化后的 VEGAScorer 类）
     
-    使用 VEGA 论文的方法：
-    1. 构建文本图：节点=类别嵌入，边=余弦相似度
-    2. 构建视觉图：节点=类别高斯分布，边=Bhattacharyya距离
-    3. 节点相似度：s_n = (1/K) * sum_k sim_k * N_k
-    4. 边相似度：s_e = (PearsonCorr + 1) / 2
-    5. 最终分数：s = s_n + s_e
+    优化特性:
+    1. PCA 降维/白化预处理（去相关，满足对角假设）
+    2. 对角协方差近似（Diagonal Covariance）- 避免矩阵求逆
+    3. 向量化的 Bhattacharyya 距离计算 - 无双重 for 循环
+    4. 复用 Cosine Similarity 矩阵
+    5. 数值稳定性保护（epsilon）
     """
-    print_detail("计算 VEGA 分数:", indent=4)
+    print_detail("计算 VEGA 分数 (优化版):", indent=4)
     print_detail(f"- 图像特征: {img_features.shape}", indent=6)
     print_detail(f"- 文本特征: {text_features.shape}", indent=6)
     print_detail(f"- Logits: {logits.shape}", indent=6)
     
-    n_samples, n_classes = logits.shape
-    feature_dim = img_features.shape[1]
-    
     start_time = time.time()
     
     try:
-        # Step 1: 生成伪标签
-        print_detail("[1/6] 生成伪标签...", indent=4)
-        pseudo_labels = np.argmax(logits, axis=1)
+        # 使用优化后的 VEGAScorer 类
+        # 参数说明:
+        # - temperature=0.05: softmax 温度参数
+        # - use_pca=True: 启用 PCA 降维
+        # - pca_dim=256: 降维后维度
+        # - pca_whiten=True: 白化处理（去相关）
+        vega = VEGAScorer(
+            temperature=0.05,
+            min_samples_per_class=1,
+            use_pca=True,
+            pca_dim=256,
+            pca_whiten=True
+        )
         
-        # Step 2: 构建文本图
-        print_detail("[2/6] 构建文本图...", indent=4)
-        text_embeddings = text_features / (np.linalg.norm(text_features, axis=1, keepdims=True) + 1e-8)
-        
-        # 文本边矩阵（余弦相似度）
-        text_edge_matrix = text_embeddings @ text_embeddings.T
-        print_detail(f"  文本边矩阵: {text_edge_matrix.shape}", indent=6)
-        
-        # Step 3: 构建视觉图节点（每个类别的高斯分布）
-        print_detail("[3/6] 构建视觉图节点（类别分布）...", indent=4)
-        
-        class_means = []
-        class_covs = []
-        class_counts = []
-        valid_classes = []
-        
-        for k in range(n_classes):
-            class_mask = pseudo_labels == k
-            class_count = np.sum(class_mask)
-            
-            if class_count < 2:
-                continue
-            
-            class_features = img_features[class_mask]
-            class_mean = np.mean(class_features, axis=0)
-            
-            # 计算协方差（添加正则化以保证数值稳定）
-            if class_count > feature_dim:
-                class_cov = np.cov(class_features.T) + 1e-6 * np.eye(feature_dim)
-            else:
-                # 样本数不足，使用对角协方差
-                class_cov = np.diag(np.var(class_features, axis=0) + 1e-6)
-            
-            class_means.append(class_mean)
-            class_covs.append(class_cov)
-            class_counts.append(class_count)
-            valid_classes.append(k)
-        
-        if len(valid_classes) == 0:
-            print_detail("[!] 无有效类别", indent=4)
-            return None, {'error': 'No valid classes'}
-        
-        K = len(valid_classes)
-        print_detail(f"  有效类别数: {K}", indent=6)
-        
-        # Step 4: 计算节点相似度
-        print_detail("[4/6] 计算节点相似度...", indent=4)
-        
-        node_similarities = []
-        temperature = 0.05
-        
-        for i, k in enumerate(valid_classes):
-            class_mask = pseudo_labels == k
-            class_features = img_features[class_mask]
-            
-            # 计算每个样本与所有文本嵌入的相似度
-            similarities = class_features @ text_embeddings.T
-            similarities = similarities / temperature
-            exp_sim = np.exp(similarities - similarities.max(axis=1, keepdims=True))
-            probs = exp_sim / exp_sim.sum(axis=1, keepdims=True)
-            
-            # 取该类别对应的概率
-            class_probs = probs[:, k]
-            avg_prob = np.mean(class_probs)
-            
-            node_similarities.append(avg_prob * class_counts[i])
-        
-        s_n = np.sum(node_similarities) / np.sum(class_counts)
-        print_detail(f"  节点相似度 (s_n): {s_n:.4f}", indent=6)
-        
-        # Step 5: 计算边相似度（Bhattacharyya 距离）
-        print_detail("[5/6] 计算边相似度（Bhattacharyya 距离）...", indent=4)
-        print_detail(f"  需要计算 {K*(K-1)//2} 对类别间的距离", indent=6)
-        
-        visual_edge_matrix = np.zeros((K, K))
-        computed_pairs = 0
-        total_pairs = K * (K - 1) // 2
-        last_progress = 0
-        
-        for i in range(K):
-            for j in range(i + 1, K):
-                # 计算 Bhattacharyya 距离
-                mean_i, mean_j = class_means[i], class_means[j]
-                cov_i, cov_j = class_covs[i], class_covs[j]
-                
-                # 使用简化的计算方式
-                try:
-                    cov_avg = (cov_i + cov_j) / 2
-                    diff = mean_i - mean_j
-                    
-                    # 使用伪逆来避免奇异矩阵问题
-                    try:
-                        cov_inv = np.linalg.pinv(cov_avg)
-                    except:
-                        cov_inv = np.eye(feature_dim) * 0.1
-                    
-                    bh_dist = 0.125 * diff @ cov_inv @ diff
-                    bh_dist = max(0, min(bh_dist, 10))  # 限制范围
-                except:
-                    bh_dist = 1.0  # 默认值
-                
-                # 转换为相似度
-                visual_edge_matrix[i, j] = bh_dist
-                visual_edge_matrix[j, i] = bh_dist
-                
-                computed_pairs += 1
-                
-                # 每 100 对或完成时显示进度
-                progress = int(computed_pairs / total_pairs * 100)
-                if progress > last_progress and (progress % 10 == 0 or computed_pairs == total_pairs):
-                    print_detail(f"  边计算进度: {computed_pairs}/{total_pairs} ({progress}%)", indent=6)
-                    last_progress = progress
-        
-        # 计算 Pearson 相关系数
-        # 展平上三角矩阵（不含对角线）
-        text_edges = []
-        visual_edges = []
-        for i in range(K):
-            for j in range(i + 1, K):
-                text_edges.append(text_edge_matrix[i, j])
-                visual_edges.append(visual_edge_matrix[i, j])
-        
-        if len(text_edges) > 1:
-            corr, _ = stats.pearsonr(text_edges, visual_edges)
-            s_e = (corr + 1) / 2
-        else:
-            s_e = 0.5
-        
-        print_detail(f"  边相似度 (s_e): {s_e:.4f}", indent=6)
-        
-        # Step 6: 计算总分
-        print_detail("[6/6] 计算总分...", indent=4)
-        vega_score = s_n + s_e
+        # 计算分数（return_details=True 返回详细信息）
+        result = vega.compute_score(
+            features=img_features,
+            text_embeddings=text_features,
+            logits=logits,
+            return_details=True
+        )
         
         elapsed = time.time() - start_time
-        print_detail(f"VEGA 总分: {vega_score:.4f} (耗时: {elapsed:.2f}s)", indent=4)
         
-        result = {
+        # 提取结果
+        vega_score = result.get('score', 0.0)
+        node_sim = result.get('node_similarity', 0.0)
+        edge_sim = result.get('edge_similarity', 0.0)
+        valid_classes = result.get('valid_classes', 0)
+        pca_dim = result.get('pca_dim', img_features.shape[1])
+        
+        print_detail(f"VEGA 总分: {vega_score:.4f} (耗时: {elapsed:.2f}s)", indent=4)
+        print_detail(f"  - 节点相似度: {node_sim:.4f}", indent=6)
+        print_detail(f"  - 边相似度: {edge_sim:.4f}", indent=6)
+        print_detail(f"  - 有效类别数: {valid_classes}", indent=6)
+        print_detail(f"  - PCA 维度: {pca_dim}", indent=6)
+        
+        # 构建返回结果（兼容原有格式）
+        return_result = {
             'score': vega_score,
-            'node_similarity': s_n,
-            'edge_similarity': s_e,
-            'valid_classes': K,
-            'computation_time': elapsed
+            'node_similarity': node_sim,
+            'edge_similarity': edge_sim,
+            'valid_classes': valid_classes,
+            'computation_time': elapsed,
+            'pca_dim': pca_dim,
+            'diagonal_covariance': True,
+            'vectorized_computation': True
         }
         
-        return vega_score, result
+        return vega_score, return_result
         
     except Exception as e:
         print_detail(f"[!] VEGA 计算错误: {e}", indent=4)
