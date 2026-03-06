@@ -238,3 +238,113 @@ cat VEGA/cache/benchmark_results.json
 1. 在服务器上运行更新后的基准测试脚本
 2. 验证 VEGA 和 LogME 的排序相关性
 3. 分析不同数据集上的表现
+
+---
+
+## 2026-03-06 VEGAScorer 性能优化
+
+### 问题背景
+
+VEGA 算法在计算 Bhattacharyya 距离时速度过慢，主要瓶颈在于：
+1. 全协方差矩阵计算需要矩阵求逆和行列式计算（O(D³)复杂度）
+2. `build_visual_graph` 中的双重 for 循环计算 edge_matrix
+3. `compute_score` 中 Cosine Similarity 矩阵被多次计算
+4. 高维特征（如 512/768 维）导致计算量大且协方差矩阵估计不准
+
+### 优化方案
+
+根据用户需求，实现了以下优化：
+
+#### 1. PCA 降维/白化预处理
+```python
+vega = VEGAScorer(use_pca=True, pca_dim=256, pca_whiten=True)
+```
+- **降维**: 将高维特征（如 512/768 维）降至 256 维，减少计算量
+- **白化（Whitening）**: 使特征各维度去相关，方差归一化
+- **数学意义**: 白化后协方差矩阵近似单位矩阵，使对角协方差假设成立
+
+#### 2. 对角协方差近似（Diagonal Covariance）
+- **原方法**: 计算完整协方差矩阵 Σ ∈ R^{D×D}，需要 `torch.linalg.inv` 和行列式计算
+- **优化后**: 只计算每个维度的方差 σ² ∈ R^D，忽略特征间相关性
+- **Bhattacharyya 距离简化公式**:
+  ```
+  D_B = (1/8) * Σ_d (μ1_d - μ2_d)² / σ_d 
+        + (1/4) * Σ_d log(σ_d) - (1/4) * Σ_d (log(σ1_d) + log(σ2_d))
+  ```
+  其中 σ_d = (σ1_d + σ2_d) / 2
+
+#### 3. 向量化 Edge Matrix 计算
+- **原方法**: 双重 for 循环遍历 K×K 个类别对
+- **优化后**: 使用 PyTorch 广播机制一次性计算
+  ```python
+  mu_diff = means_matrix.unsqueeze(1) - means_matrix.unsqueeze(0)  # [K, K, D]
+  sigma_avg = (vars_matrix.unsqueeze(1) + vars_matrix.unsqueeze(0)) / 2
+  bh_distance = (mu_diff ** 2) / sigma_avg  # 向量化计算
+  ```
+
+#### 4. Cosine Similarity 矩阵复用
+- **原问题**: `compute_pseudo_labels` 和 `compute_node_similarity` 都计算了 cosine similarity
+- **优化后**: 在 `compute_score` 中计算一次，传递给需要的函数复用
+
+#### 5. 数值稳定性保护
+- 所有除法和 log 操作添加 `EPS = 1e-8` 保护
+- 方差估计使用有偏估计量（除以 n 而非 n-1）提高小样本稳定性
+
+### 性能对比
+
+| 优化项 | 原复杂度 | 优化后复杂度 | 预期加速 |
+|--------|----------|--------------|----------|
+| 协方差计算 | O(K×D²×D) | O(K×D) | ~D² 倍 |
+| 矩阵求逆 | O(D³) | 无需求逆 | 避免数值不稳定 |
+| Edge Matrix | O(K²×D) 双重循环 | O(K²×D) 向量化 | 并行化加速 |
+| 特征维度 | O(D) | O(pca_dim) | D/pca_dim 倍 |
+
+### 使用方法
+
+```python
+from methods.baseline.vega import VEGAScorer, VEGAPlus
+
+# 标准用法（启用所有优化）
+vega = VEGAScorer(
+    temperature=0.05,
+    use_pca=True,        # 启用 PCA 降维
+    pca_dim=256,         # 目标维度
+    pca_whiten=True      # 启用白化（推荐）
+)
+
+# 计算 VEGA 分数
+score = vega.compute_score(
+    features=image_features,        # [N, D]
+    text_embeddings=text_features,  # [K, D]
+    logits=model_logits             # [N, K] (可选)
+)
+
+# 获取详细信息
+result = vega.compute_score(features, text_embeddings, return_details=True)
+print(f"节点相似度: {result['node_similarity']:.4f}")
+print(f"边相似度: {result['edge_similarity']:.4f}")
+print(f"PCA 维度: {result['pca_dim']}")
+
+# 禁用 PCA（保持原始维度）
+vega_no_pca = VEGAScorer(use_pca=False)
+
+# 扩展版本（带置信度加权）
+vega_plus = VEGAPlus(
+    confidence_weight=0.3,  # 置信度权重
+    use_pca=True,
+    pca_dim=256
+)
+```
+
+### 接口兼容性
+
+优化后的 `VEGAScorer` 类保持了原有的接口定义：
+- `__init__(temperature, min_samples_per_class)`: 保持兼容，新增可选参数
+- `compute_score(features, text_embeddings, logits, pseudo_labels, return_details)`: 接口不变
+- `VEGA` 别名保持向后兼容
+
+### 待验证
+
+1. 在服务器上运行优化后的基准测试
+2. 对比优化前后的计算速度
+3. 验证排序相关性是否保持
