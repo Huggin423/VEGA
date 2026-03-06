@@ -1,0 +1,342 @@
+[
+  {
+    "dataset": "cars",
+    "vega_scores": {
+      "RN50_openai": 0.48251234577279395,
+      "RN101_openai": 0.523566311745542,
+      "ViT-B-32_openai": 0.5050229749557933,
+      "ViT-B-16_openai": 0.4672103441204867,
+      "ViT-L-14_openai": 0.42703385637945457,
+      "ViT-B-32_laion2b_s34b_b79k": 0.48534380390803145,
+      "ViT-B-16_laion400m_e32": 0.47484820899481567
+    },
+    "logme_scores": {
+      "RN50_openai": 1.3741971794935095,
+      "RN101_openai": 1.3632927305419165,
+      "ViT-B-32_openai": 1.3888529643435648,
+      "ViT-B-16_openai": 1.3791937921534156,
+      "ViT-L-14_openai": 1.3831902882995506,
+      "ViT-B-32_laion2b_s34b_b79k": 1.3451629123024662,
+      "ViT-B-16_laion400m_e32": 1.3450137550248535
+    },
+    "ground_truth": {
+      "RN50_openai": 0.5424698420594454,
+      "RN101_openai": 0.6111180201467479,
+      "ViT-B-32_openai": 0.5973137669444099,
+      "ViT-B-16_openai": 0.6460639223977117,
+      "ViT-L-14_openai": 0.7775152344235792,
+      "ViT-B-32_laion2b_s34b_b79k": 0.8599676657132197,
+      "ViT-B-16_laion400m_e32": 0.8363387638353439
+    },
+    "vega_metrics": {
+      "kendall_tau": -0.14285714285714288,
+      "kendall_p": 0.7726190476190476,
+      "spearman": -0.3214285714285715,
+      "spearman_p": 0.4820720382996776,
+      "pearson": -0.4360635292100995,
+      "pearson_p": 0.3280429256095912,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.6111180201467479,
+      "top1_model": "RN101_openai",
+      "oracle_accuracy": 0.8599676657132197,
+      "oracle_model": "ViT-B-32_laion2b_s34b_b79k",
+      "num_models": 7
+    },
+    "logme_metrics": {
+      "kendall_tau": -0.33333333333333337,
+      "kendall_p": 0.3813492063492063,
+      "spearman": -0.5357142857142858,
+      "spearman_p": 0.21521745567801273,
+      "pearson": -0.6581922108778082,
+      "pearson_p": 0.10798760494831523,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.5973137669444099,
+      "top1_model": "ViT-B-32_openai",
+      "oracle_accuracy": 0.8599676657132197,
+      "oracle_model": "ViT-B-32_laion2b_s34b_b79k",
+      "num_models": 7
+    },
+    "failed_models": [
+      {
+        "model": "BLIP_retrieval_base_coco",
+        "reason": "no text features"
+      },
+      {
+        "model": "BEIT3_retrieval_base_coco",
+        "reason": "no text features"
+      }
+    ]
+  },
+  {
+    "dataset": "cifar100",
+    "vega_scores": {
+      "RN50_openai": 0.5112490389560603,
+      "RN101_openai": 0.42785784627669354,
+      "ViT-B-32_openai": 0.5006459396085223,
+      "ViT-B-16_openai": 0.4939213542370613,
+      "ViT-L-14_openai": 0.6072897469120381,
+      "ViT-B-32_laion2b_s34b_b79k": 0.546943249996734,
+      "ViT-B-16_laion400m_e32": 0.5002982065384683
+    },
+    "logme_scores": {
+      "RN50_openai": 1.0823517803977893,
+      "RN101_openai": 1.0508339167583713,
+      "ViT-B-32_openai": 1.0090720806911444,
+      "ViT-B-16_openai": 1.0306942365842926,
+      "ViT-L-14_openai": 1.0631681272547318,
+      "ViT-B-32_laion2b_s34b_b79k": 1.0402208397895973,
+      "ViT-B-16_laion400m_e32": 1.0100425440769931
+    },
+    "ground_truth": {
+      "RN50_openai": 0.4195,
+      "RN101_openai": 0.4891,
+      "ViT-B-32_openai": 0.6508,
+      "ViT-B-16_openai": 0.6822,
+      "ViT-L-14_openai": 0.7828,
+      "ViT-B-32_laion2b_s34b_b79k": 0.758,
+      "ViT-B-16_laion400m_e32": 0.7138
+    },
+    "vega_metrics": {
+      "kendall_tau": 0.4285714285714286,
+      "kendall_p": 0.2388888888888889,
+      "spearman": 0.5357142857142858,
+      "spearman_p": 0.21521745567801273,
+      "pearson": 0.639810208277471,
+      "pearson_p": 0.12172875057871083,
+      "top5_recall": 0.8,
+      "top1_accuracy": 0.7828,
+      "top1_model": "ViT-L-14_openai",
+      "oracle_accuracy": 0.7828,
+      "oracle_model": "ViT-L-14_openai",
+      "num_models": 7
+    },
+    "logme_metrics": {
+      "kendall_tau": -0.04761904761904762,
+      "kendall_p": 1.0,
+      "spearman": -0.14285714285714288,
+      "spearman_p": 0.7599453002180929,
+      "pearson": -0.475901873188394,
+      "pearson_p": 0.2803753236974541,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.4195,
+      "top1_model": "RN50_openai",
+      "oracle_accuracy": 0.7828,
+      "oracle_model": "ViT-L-14_openai",
+      "num_models": 7
+    },
+    "failed_models": [
+      {
+        "model": "BLIP_retrieval_base_coco",
+        "reason": "no text features"
+      },
+      {
+        "model": "BEIT3_retrieval_base_coco",
+        "reason": "no text features"
+      }
+    ]
+  },
+  {
+    "dataset": "flowers",
+    "vega_scores": {
+      "RN50_openai": 0.5994896726175356,
+      "RN101_openai": 0.6295369004093201,
+      "ViT-B-32_openai": 0.6259456829035301,
+      "ViT-B-16_openai": 0.6473081096647285,
+      "ViT-L-14_openai": 0.47532572766953923,
+      "ViT-B-32_laion2b_s34b_b79k": 0.5651223624823571,
+      "ViT-B-16_laion400m_e32": 0.5115495792418453
+    },
+    "logme_scores": {
+      "RN50_openai": 1.1999091738294834,
+      "RN101_openai": 1.4767098293361687,
+      "ViT-B-32_openai": 1.3754559709489644,
+      "ViT-B-16_openai": 1.46186608809467,
+      "ViT-L-14_openai": 1.2140509754440245,
+      "ViT-B-32_laion2b_s34b_b79k": 1.1931159982038617,
+      "ViT-B-16_laion400m_e32": 1.2478354922554717
+    },
+    "ground_truth": {
+      "RN50_openai": 0.6562881562881563,
+      "RN101_openai": 0.6477411477411478,
+      "ViT-B-32_openai": 0.6562881562881563,
+      "ViT-B-16_openai": 0.7087912087912088,
+      "ViT-L-14_openai": 0.7905982905982906,
+      "ViT-B-32_laion2b_s34b_b79k": 0.7112332112332113,
+      "ViT-B-16_laion400m_e32": 0.6898656898656899
+    },
+    "vega_metrics": {
+      "kendall_tau": -0.4879500364742666,
+      "kendall_p": 0.12873504895794796,
+      "spearman": -0.5585812268712466,
+      "spearman_p": 0.19245253188052203,
+      "pearson": -0.7139261913940552,
+      "pearson_p": 0.07155294357545154,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.7087912087912088,
+      "top1_model": "ViT-B-16_openai",
+      "oracle_accuracy": 0.7905982905982906,
+      "oracle_model": "ViT-L-14_openai",
+      "num_models": 7
+    },
+    "logme_metrics": {
+      "kendall_tau": -0.39036002917941326,
+      "kendall_p": 0.22425655667185918,
+      "spearman": -0.5225437283634242,
+      "spearman_p": 0.22887787757609496,
+      "pearson": -0.3963847383211874,
+      "pearson_p": 0.37867115779295735,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.6477411477411478,
+      "top1_model": "RN101_openai",
+      "oracle_accuracy": 0.7905982905982906,
+      "oracle_model": "ViT-L-14_openai",
+      "num_models": 7
+    },
+    "failed_models": [
+      {
+        "model": "BLIP_retrieval_base_coco",
+        "reason": "no text features"
+      },
+      {
+        "model": "BEIT3_retrieval_base_coco",
+        "reason": "no text features"
+      }
+    ]
+  },
+  {
+    "dataset": "pets",
+    "vega_scores": {
+      "RN50_openai": 0.497456374033693,
+      "RN101_openai": 0.3377836914168208,
+      "ViT-B-32_openai": 0.4583317253025108,
+      "ViT-B-16_openai": 0.4663907407080057,
+      "ViT-L-14_openai": 0.5541190517086757,
+      "ViT-B-32_laion2b_s34b_b79k": 0.6132838857436339,
+      "ViT-B-16_laion400m_e32": 0.5780045901567676
+    },
+    "logme_scores": {
+      "RN50_openai": 0.6600157418122657,
+      "RN101_openai": 0.7088247431345055,
+      "ViT-B-32_openai": 0.704447453134836,
+      "ViT-B-16_openai": 0.7547569198451564,
+      "ViT-L-14_openai": 0.9443908556597699,
+      "ViT-B-32_laion2b_s34b_b79k": 0.6944831238498728,
+      "ViT-B-16_laion400m_e32": 0.665882117121118
+    },
+    "ground_truth": {
+      "RN50_openai": 0.8579994548923412,
+      "RN101_openai": 0.868629054238212,
+      "ViT-B-32_openai": 0.8746252384846007,
+      "ViT-B-16_openai": 0.8907059144180975,
+      "ViT-L-14_openai": 0.9359498500953939,
+      "ViT-B-32_laion2b_s34b_b79k": 0.9062414826928318,
+      "ViT-B-16_laion400m_e32": 0.8926137912237667
+    },
+    "vega_metrics": {
+      "kendall_tau": 0.5238095238095238,
+      "kendall_p": 0.1361111111111111,
+      "spearman": 0.6785714285714287,
+      "spearman_p": 0.0937502539598313,
+      "pearson": 0.6014777129629378,
+      "pearson_p": 0.15309549507849798,
+      "top5_recall": 0.8,
+      "top1_accuracy": 0.9062414826928318,
+      "top1_model": "ViT-B-32_laion2b_s34b_b79k",
+      "oracle_accuracy": 0.9359498500953939,
+      "oracle_model": "ViT-L-14_openai",
+      "num_models": 7
+    },
+    "logme_metrics": {
+      "kendall_tau": 0.33333333333333337,
+      "kendall_p": 0.3813492063492063,
+      "spearman": 0.42857142857142866,
+      "spearman_p": 0.337368311085824,
+      "pearson": 0.7934644082840269,
+      "pearson_p": 0.03319831437713422,
+      "top5_recall": 0.8,
+      "top1_accuracy": 0.9359498500953939,
+      "top1_model": "ViT-L-14_openai",
+      "oracle_accuracy": 0.9359498500953939,
+      "oracle_model": "ViT-L-14_openai",
+      "num_models": 7
+    },
+    "failed_models": [
+      {
+        "model": "BLIP_retrieval_base_coco",
+        "reason": "no text features"
+      },
+      {
+        "model": "BEIT3_retrieval_base_coco",
+        "reason": "no text features"
+      }
+    ]
+  },
+  {
+    "dataset": "dtd",
+    "vega_scores": {
+      "RN50_openai": 0.6034254276530727,
+      "RN101_openai": 0.6190867763281322,
+      "ViT-B-32_openai": 0.665976491077048,
+      "ViT-B-16_openai": 0.5036764575615008,
+      "ViT-L-14_openai": 0.4555453235907726,
+      "ViT-B-32_laion2b_s34b_b79k": 0.4570790154238722,
+      "ViT-B-16_laion400m_e32": 0.5314302414891795
+    },
+    "logme_scores": {
+      "RN50_openai": 0.9595373132704992,
+      "RN101_openai": 0.8449362011093797,
+      "ViT-B-32_openai": 0.8118108147664358,
+      "ViT-B-16_openai": 0.974710102926116,
+      "ViT-L-14_openai": 0.8057538016557176,
+      "ViT-B-32_laion2b_s34b_b79k": 0.7907630821833205,
+      "ViT-B-16_laion400m_e32": 0.842223921625428
+    },
+    "ground_truth": {
+      "RN50_openai": 0.4122340425531915,
+      "RN101_openai": 0.43670212765957445,
+      "ViT-B-32_openai": 0.4398936170212766,
+      "ViT-B-16_openai": 0.451063829787234,
+      "ViT-L-14_openai": 0.5531914893617021,
+      "ViT-B-32_laion2b_s34b_b79k": 0.5611702127659575,
+      "ViT-B-16_laion400m_e32": 0.5101063829787233
+    },
+    "vega_metrics": {
+      "kendall_tau": -0.5238095238095238,
+      "kendall_p": 0.1361111111111111,
+      "spearman": -0.7857142857142859,
+      "spearman_p": 0.03623846267982713,
+      "pearson": -0.8335776788112986,
+      "pearson_p": 0.019798058596253484,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.4398936170212766,
+      "top1_model": "ViT-B-32_openai",
+      "oracle_accuracy": 0.5611702127659575,
+      "oracle_model": "ViT-B-32_laion2b_s34b_b79k",
+      "num_models": 7
+    },
+    "logme_metrics": {
+      "kendall_tau": -0.6190476190476191,
+      "kendall_p": 0.06904761904761905,
+      "spearman": -0.7142857142857144,
+      "spearman_p": 0.07134356146753759,
+      "pearson": -0.6507582356066616,
+      "pearson_p": 0.11344239256357212,
+      "top5_recall": 0.6,
+      "top1_accuracy": 0.451063829787234,
+      "top1_model": "ViT-B-16_openai",
+      "oracle_accuracy": 0.5611702127659575,
+      "oracle_model": "ViT-B-32_laion2b_s34b_b79k",
+      "num_models": 7
+    },
+    "failed_models": [
+      {
+        "model": "BLIP_retrieval_base_coco",
+        "reason": "no text features"
+      },
+      {
+        "model": "BEIT3_retrieval_base_coco",
+        "reason": "no text features"
+      }
+    ]
+  }
+]

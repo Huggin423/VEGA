@@ -616,24 +616,53 @@ def main():
             print("Please run this script on the server")
             return
     
+    # 31 CLIP family models (with both logits and class_text_feat)
+    # Based on ptm_stats/class_text_feat/ and ptm_stats/logits/
     test_models = [
+        # OpenAI CLIP (5 models)
         'RN50_openai',
         'RN101_openai',
         'ViT-B-32_openai',
         'ViT-B-16_openai',
         'ViT-L-14_openai',
-        'ViT-B-32_laion2b_s34b_b79k',
+        # LAION 400M (7 models)
+        'ViT-B-32_laion400m_e31',
+        'ViT-B-32_laion400m_e32',
+        'ViT-B-32-quickgelu_laion400m_e32',
         'ViT-B-16_laion400m_e32',
-        'BLIP_retrieval_base_coco',
-        'BEIT3_retrieval_base_coco',
+        'ViT-B-16-plus-240_laion400m_e32',
+        'ViT-L-14_laion400m_e32',
+        # LAION 2B (4 models)
+        'ViT-B-32_laion2b_e16',
+        'ViT-B-32_laion2b_s34b_b79k',
+        # SigLIP (2 models)
+        'SigLIP_base',
+        'SigLIP_so400m',
+        # Other architectures (8 models)
+        'ALIGN',
+        'AltCLIP',
+        'GroupViT',
+        'MetaCLIP',
+        'StreetCLIP',
+        'RN50x4_openai',
+        'RN50x16_openai',
+        'RN50x64_openai',
+        # Additional large models (5 models)
+        'ViT-L-14-336_openai',
     ]
     
+    # 10 datasets (from 22 available, excluding imagenet1k and clevr_closest_object_distance)
     test_datasets = [
         'cars',
         'cifar100',
         'flowers',
         'pets',
         'dtd',
+        'eurosat',
+        'food101',  # Note: may not have all models
+        'gtsrb',
+        'mnist',
+        'sun397',
     ]
     
     print("=" * 70)

@@ -348,3 +348,96 @@ vega_plus = VEGAPlus(
 1. 在服务器上运行优化后的基准测试
 2. 对比优化前后的计算速度
 3. 验证排序相关性是否保持
+
+---
+
+## 2026-03-06 基准测试结果分析与下一阶段规划
+
+### Benchmark 结果分析
+
+基于 `cache/benchmark_results.json`（5 数据集 × 7 模型）：
+
+| 数据集 | VEGA τ | LogME τ | VEGA Top-5 | 最佳方法 |
+|--------|--------|---------|------------|----------|
+| cars | -0.14 | -0.33 | 0.6 | VEGA |
+| cifar100 | **0.43** | -0.05 | **0.8** | **VEGA** |
+| flowers | -0.49 | -0.39 | 0.6 | LogME |
+| pets | **0.52** | 0.33 | **0.8** | **VEGA** |
+| dtd | -0.52 | -0.62 | 0.6 | VEGA |
+
+**关键发现**：
+
+1. **VEGA 在部分数据集上有效**：cifar100 (τ=0.43) 和 pets (τ=0.52) 表现良好
+2. **BLIP/BEIT3 文本特征缺失**：这两个模型因缺少 `class_text_feat` 而失败
+3. **flowers/dtd 表现异常**：负相关需要进一步调试
+
+### 决策：专注 CLIP 家族模型
+
+考虑到：
+- BLIP 和 BEIT3 的文本特征提取需要额外工作
+- 论文主要关注 CLIP 家族模型的选择
+- SWAB 已有大量 CLIP 模型的中间结果
+
+**决定**：暂时舍弃 BLIP/BEIT3，专注于 31 个 CLIP 家族模型。
+
+### 更新后的模型列表（31 个）
+
+```python
+# OpenAI CLIP (5 models)
+'RN50_openai', 'RN101_openai', 'ViT-B-32_openai', 'ViT-B-16_openai', 'ViT-L-14_openai',
+
+# LAION 400M (7 models)
+'ViT-B-32_laion400m_e31', 'ViT-B-32_laion400m_e32', 'ViT-B-32-quickgelu_laion400m_e32',
+'ViT-B-16_laion400m_e32', 'ViT-B-16-plus-240_laion400m_e32', 'ViT-L-14_laion400m_e32',
+
+# LAION 2B (4 models)
+'ViT-B-32_laion2b_e16', 'ViT-B-32_laion2b_s34b_b79k',
+
+# SigLIP (2 models)
+'SigLIP_base', 'SigLIP_so400m',
+
+# Other architectures (8 models)
+'ALIGN', 'AltCLIP', 'GroupViT', 'MetaCLIP', 'StreetCLIP',
+'RN50x4_openai', 'RN50x16_openai', 'RN50x64_openai',
+
+# Additional large models (5 models)
+'ViT-L-14-336_openai',
+```
+
+### 更新后的数据集列表（10 个）
+
+```python
+'cars', 'cifar100', 'flowers', 'pets', 'dtd',
+'eurosat', 'food101', 'gtsrb', 'mnist', 'sun397'
+```
+
+### 下一阶段任务
+
+#### 阶段一：修复与验证（1-2 周）
+
+- [ ] **运行完整基准测试**：31 模型 × 10 数据集 = 310 次评估
+- [ ] **验证 VEGA 实现正确性**：检查伪标签生成、图构建、相似度计算
+- [ ] **分析异常数据集**：调查 flowers/dtd 的负相关问题
+
+#### 阶段二：优化与改进（2-3 周）
+
+- [ ] **置信度校准机制**（核心创新点）
+  - 实现基于熵的置信度估计
+  - 实现基于 Test-time Augmentation 的一致性检验
+  - 将置信度融入 VEGA 的节点/边相似度计算
+
+- [ ] **语义拓扑增强**
+  - 利用类别间的层级语义关系
+  - 改进文本图的边权重计算
+
+- [ ] **消融实验**
+  - 测试 PCA 白化的影响
+  - 测试对角协方差近似的影响
+  - 测试温度参数 t 的敏感性
+
+#### 阶段三：论文撰写（2-3 周）
+
+- [ ] 整理实验数据与图表
+- [ ] 撰写方法论章节
+- [ ] 撰写实验章节
+- [ ] 完成毕业论文初稿
