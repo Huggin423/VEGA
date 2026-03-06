@@ -367,7 +367,7 @@ def compute_logme_score(features, pseudo_labels):
     start_time = time.time()
     
     try:
-        from LogME_official import LogME as LogMEOfficial
+        from LogME_official.LogME import LogME as LogMEOfficial
         logme = LogMEOfficial(regression=False)
         score = logme.fit(features.astype(np.float64), pseudo_labels.astype(np.int64))
         elapsed = time.time() - start_time
