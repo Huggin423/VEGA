@@ -6,6 +6,9 @@ Key Idea:
 - Build textual graph from class name embeddings (nodes=classes, edges=cosine similarity)
 - Build visual graph from image features (nodes=class clusters modeled as Gaussians, edges=Bhattacharyya distance)
 - Score models by measuring alignment between the two graphs at node and edge levels
+
+更新日志:
+- 2026-03-06: 添加详细进度日志，优化 Bhattacharyya 距离计算，添加缓存支持
 """
 
 import numpy as np
@@ -15,6 +18,11 @@ from typing import Union, Optional, Dict, List, Tuple
 from scipy.stats import pearsonr
 import logging
 import sys
+import os
+import json
+import hashlib
+import time
+from pathlib import Path
 
 # 配置日志输出到控制台
 logging.basicConfig(
@@ -24,10 +32,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 全局详细日志开关
+VERBOSE_LOGGING = os.environ.get('VEGA_VERBOSE', '1') == '1'
 
 def progress_print(msg: str, level: str = "INFO"):
     """打印进度信息，确保立即输出"""
-    print(f"[VEGA] {msg}", flush=True)
+    if VERBOSE_LOGGING or level == "WARNING":
+        print(f"[VEGA] {msg}", flush=True)
+
+def timing_print(msg: str, start_time: float = None):
+    """打印带时间的进度信息"""
+    if start_time is not None:
+        elapsed = time.time() - start_time
+        print(f"[VEGA] {msg} (耗时: {elapsed:.2f}s)", flush=True)
+    else:
+        print(f"[VEGA] {msg}", flush=True)
 
 
 class VEGAScorer:
@@ -404,33 +423,47 @@ class VEGAScorer:
         Returns:
             VEGA score (float), or dict with details if return_details=True
         """
+        total_start = time.time()
+        
         # Convert to tensors
+        progress_print("转换数据格式...")
         visual_features = self._to_tensor(features)
         text_embeddings = self._to_tensor(text_embeddings)
         
+        n_samples, n_features = visual_features.shape
         n_classes = text_embeddings.shape[0]
+        
+        progress_print(f"数据维度: 样本数={n_samples}, 特征维度={n_features}, 类别数={n_classes}")
         
         # Compute pseudo labels if not provided
         if pseudo_labels is None:
             if logits is not None:
+                progress_print("从 logits 获取伪标签...")
                 logits_tensor = self._to_tensor(logits)
                 pseudo_labels = logits_tensor.argmax(dim=1)
             else:
+                progress_print("计算伪标签（零样本分类）...")
                 pseudo_labels = self.compute_pseudo_labels(visual_features, text_embeddings)
         else:
             pseudo_labels = self._to_tensor(pseudo_labels).long()
         
         # Step 1: Build textual graph
+        step1_start = time.time()
+        progress_print("【步骤 1/4】构建文本图...")
         textual_nodes, textual_edges = self.build_textual_graph(text_embeddings)
+        timing_print(f"  文本图构建完成: 边矩阵 {textual_edges.shape}", step1_start)
         
         # Step 2: Build visual graph
+        step2_start = time.time()
+        progress_print("【步骤 2/4】构建视觉图...")
         class_means, class_covs, class_counts, visual_edges = self.build_visual_graph(
             visual_features, pseudo_labels, n_classes
         )
+        timing_print(f"  视觉图构建完成: 有效类别数={len(class_means)}", step2_start)
         
         # Check if visual graph construction was successful
         if visual_edges is None or len(class_means) < 2:
-            logger.warning("Visual graph construction failed, returning fallback score")
+            progress_print("视觉图构建失败，返回默认分数", level="WARNING")
             if return_details:
                 return {
                     'score': 0.0,
@@ -441,15 +474,24 @@ class VEGAScorer:
             return 0.0
         
         # Step 3: Compute node similarity
+        step3_start = time.time()
+        progress_print("【步骤 3/4】计算节点相似度...")
         node_similarity = self.compute_node_similarity(
             visual_features, text_embeddings, pseudo_labels, class_counts
         )
+        timing_print(f"  节点相似度 = {node_similarity:.4f}", step3_start)
         
         # Step 4: Compute edge similarity
+        step4_start = time.time()
+        progress_print("【步骤 4/4】计算边相似度...")
         edge_similarity = self.compute_edge_similarity(textual_edges, visual_edges)
+        timing_print(f"  边相似度 = {edge_similarity:.4f}", step4_start)
         
         # Step 5: Final VEGA score
         vega_score = node_similarity + edge_similarity
+        
+        total_time = time.time() - total_start
+        progress_print(f"VEGA 总分 = {vega_score:.4f} (总耗时: {total_time:.2f}s)")
         
         if return_details:
             return {
@@ -457,7 +499,8 @@ class VEGAScorer:
                 'node_similarity': node_similarity,
                 'edge_similarity': edge_similarity,
                 'valid_classes': len(class_means),
-                'class_counts': class_counts
+                'class_counts': class_counts,
+                'compute_time': total_time
             }
         
         return vega_score

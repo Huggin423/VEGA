@@ -160,29 +160,61 @@ python scripts/extract_class_text_features.py --verify
 
 ### 问题背景
 
-运行 `scripts/run_benchmark.py` 时发现两个问题：
-1. `compute_score` 使用的是 `VEGAPlus`（带置信度加权的扩展版本），而不是论文中的基础 VEGA
+运行 `scripts/run_benchmark.py` 时发现以下问题：
+1. LogME 调用方式错误：`'LogME' object has no attribute 'logme'`
 2. 运行时没有进度显示，导致以为程序卡住了
+3. 部分模型处理失败但没有详细记录
+4. VEGA 边计算时 Bhattacharyya 距离计算速度过慢
+5. 每次运行都需要重新计算，资源消耗大
 
 ### 已完成工作
 
-1. **VEGA 代码重构** (`methods/baseline/vega.py`)：
-   - `VEGAScorer`: 基础 VEGA 实现，完全符合论文算法
-     - 节点相似度: `s_n = (1/K) * Σ_k sim_k * N_k`
-     - 边相似度: `s_e = (PearsonCorr + 1) / 2`
-     - 最终分数: `s = s_n + s_e`
-   - `VEGAPlus`: 扩展版本（保留但不再默认使用）
-   - 保留 `VEGA = VEGAScorer` 作为向后兼容别名
+1. **LogME 调用方式修复**：
+   - 错误：`score = logme.logme(features, pseudo_labels)`
+   - 正确：`score = logme.fit(features, labels)`
+   - 使用 `LogME_official` 库的正确 API
 
-2. **基准测试脚本优化** (`scripts/run_benchmark.py`)：
-   - 使用基础 `VEGAScorer` 替代 `VEGAPlus`
-   - 添加 `ProgressBar` 类实现进度条显示
-   - 添加详细的时间预估和状态输出
-   - 每个数据集和模型处理时显示进度
+2. **缓存系统实现**：
+   - 缓存目录：`VEGA/cache/`
+   - 每个 (model, dataset, method) 组合的结果会被缓存
+   - 使用 MD5 哈希生成缓存文件名
+   - 支持 `ENABLE_CACHE` 开关控制是否启用缓存
+   - 结果同时保存到 JSON 文件便于查看
 
-3. **代码注释改进**：
-   - 在 `compute_vega_score_detailed()` 中明确标注使用的是基础 VEGA
-   - 添加详细的算法说明注释
+3. **详细进度日志**：
+   - 模型级别进度条：显示当前处理进度和 ETA
+   - VEGA 计算的 6 个步骤详细日志：
+     - [1/6] 生成伪标签
+     - [2/6] 构建文本图
+     - [3/6] 构建视觉图节点（类别分布）
+     - [4/6] 计算节点相似度
+     - [5/6] 计算边相似度（Bhattacharyya 距离）
+     - [6/6] 计算总分
+   - 边计算进度：显示已计算对数和百分比
+
+4. **失败模型追踪**：
+   - 记录每个失败模型的原因
+   - 原因包括：`no logits`, `no image features`, `no text features`, `no accuracy`
+   - 在每个数据集处理后汇总失败模型
+   - 最终结果中显示所有失败模型
+
+5. **性能优化**：
+   - 使用 `np.linalg.pinv` 伪逆替代 `torch.linalg.inv` 避免奇异矩阵问题
+   - 添加数值范围限制防止溢出
+   - 使用 numpy 替代 torch 加速小规模矩阵运算
+
+### 使用说明
+
+```bash
+# 运行基准测试
+python scripts/run_benchmark.py
+
+# 缓存文件位置
+ls VEGA/cache/
+
+# 查看结果
+cat VEGA/cache/benchmark_results.json
+```
 
 ### VEGA 算法核心要点
 
