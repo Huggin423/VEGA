@@ -91,3 +91,65 @@
 ### 已完成工作
 
 1. 尝试尽量向VEGA论文的实验设置。目前数据集是完全覆盖的，但是模型比较麻烦。原论文中有三个benchmark。A是对CLIP家族模型的测试，B是对不同预训练算法获得的模型测试，C是结合不同提示词模板的测试。
+
+---
+
+## 2026-03-04 文本特征提取脚本优化
+
+### 问题背景
+
+运行 `scripts/extract_class_text_features.py` 时，发现多个模型无法成功加载，主要原因是 HuggingFace Hub 无法访问（大陆网络不稳定）。具体错误日志见 `scripts/vega_log.txt`。
+
+### 已完成工作
+
+1. **分离模型加载策略**：
+   - `CLIP_FAMILY_MODELS`: 可直接通过 open_clip 加载的模型（laion400m 系列，17个）
+   - `LAION_2B_MODELS_LOCAL`: 需要从本地缓存加载的 LAION 2B 模型（18个，包括 ConvNeXt、CoCa、ViT-H/g 等）
+
+2. **新增本地缓存加载函数** `load_open_clip_from_cache()`：
+   - 从 `SWAB/model/checkpoint/` 下的 HuggingFace 缓存格式加载模型
+   - 自动查找 `snapshots` 目录
+
+3. **实现 BLIP 模型支持**：
+   - 使用 SWAB 已有的 `model/blip_class.py`
+   - 从本地 checkpoint 加载：`model_base_retrieval_coco.pth`、`model_base_retrieval_flickr.pth`、`model_large_retrieval_coco.pth`、`model_large_retrieval_flickr.pth`
+
+4. **实现 BEIT3 模型支持**：
+   - 使用 SWAB 已有的 `model/beit_class.py`
+   - 从本地 checkpoint 加载：`beit3_base_patch16_384_coco_retrieval.pth` 等
+
+5. **为特殊模型添加 open_clip 方式加载**：
+   ```python
+   OPENCLIP_STYLE_MODELS = {
+       "BioCLIP": ("ViT-B-16", "bioclip"),
+       "BiomedCLIP": ("ViT-B-16", "biomedclip"),
+       "QuiltNet": ("ViT-B-32", "quiltnet"),
+   }
+   ```
+
+### 模型数量统计
+
+| 类别 | 数量 | 说明 |
+|------|------|------|
+| Benchmark A (直接加载) | 17 | OpenAI CLIP + laion400m |
+| Benchmark A (缓存加载) | 18 | LAION 2B、ConvNeXt、CoCa |
+| Benchmark B | 10 | AltCLIP、SigLIP、BioCLIP 等 |
+| BLIP + BEIT3 | 8 | 4 BLIP + 4 BEIT3 |
+| **总计** | **53** | |
+
+### 运行方式
+
+```bash
+# 查看配置
+python scripts/extract_class_text_features.py --setup
+
+# 运行提取
+python scripts/extract_class_text_features.py
+
+# 验证结果
+python scripts/extract_class_text_features.py --verify
+```
+
+### 已生成的 class_text_feat 文件
+
+截至目前，已成功生成 23 个模型的文本特征文件（见 `SWAB/ptm_stats/class_text_feat/`），还有部分模型因网络问题待处理。所有模型都优先从本地路径加载，避免 HuggingFace Hub 网络问题。

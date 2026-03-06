@@ -17,8 +17,6 @@ VEGA 的三个 Benchmark:
 - Benchmark C: Combinations of VLM and Prompt Template (10模型×10模板)
 
 运行环境：实验室服务器（需要 GPU 和模型文件）
-
-更新：支持离线加载，优先使用本地模型文件
 """
 
 import os
@@ -31,10 +29,6 @@ from typing import Dict, List, Optional, Tuple
 import json
 import warnings
 warnings.filterwarnings('ignore')
-
-# 设置离线模式环境变量
-os.environ['HF_HUB_OFFLINE'] = '1'
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
 # open_clip 用于加载 CLIP 类模型
 try:
@@ -62,30 +56,25 @@ OUTPUT_DIR = os.path.join(SWAB_ROOT, 'ptm_stats/class_text_feat')
 DEFAULT_TEMPLATE = "a photo of a {}."
 
 # ============================================================================
-# 本地模型路径配置
-# ============================================================================
-
-# HuggingFace 缓存目录（VEGA 中的缓存）
-HF_CACHE_DIR = os.path.join(VEGA_ROOT, 'model/checkpoint')
-
-# VEGA 本地模型目录
-VEGA_MODELS_DIR = os.path.join(VEGA_ROOT, 'models')
-
-# 额外模型目录
-EXTRA_MODELS_DIR = '/root/mxy/models'
-
-
-# ============================================================================
 # VEGA 实验设置
 # ============================================================================
 
 # VEGA 论文使用的 10 个下游数据集
+# "We conduct performance prediction on ten common-used downstream datasets"
 VEGA_DATASETS = [
-    'cifar100', 'pets', 'flowers', 'svhn', 'gtsrb',
-    'dtd', 'country211', 'sun397', 'mnist', 'fer2013',
+    'cifar100',       # basic image recognition Cifar-100
+    'pets',           # animal dataset Oxford Pets
+    'flowers',        # plant dataset Oxford Flowers
+    'svhn',           # street scene dataset SVHN
+    'gtsrb',          # street scene dataset GTSRB
+    'dtd',            # describable textures dataset DTD
+    'country211',     # scene classification dataset Country211
+    'sun397',         # scene classification dataset SUN397
+    'mnist',          # digit dataset MNIST
+    'fer2013',        # facial expression dataset Fer2013
 ]
 
-# 完整数据集列表
+# 完整数据集列表（包括 SWAB 中有的额外数据集）
 ALL_DATASETS = [
     'cars', 'cifar100', 'flowers', 'pets', 'dtd',
     'eurosat', 'gtsrb', 'mnist', 'pcam', 'stl10',
@@ -98,196 +87,129 @@ ALL_DATASETS = [
 
 # ============================================================================
 # Benchmark A: VLMs from CLIP Family
+# 基于 ptm_stats/logits 中已有的模型
 # ============================================================================
 
-# open_clip 模型配置，支持本地缓存路径
-# 格式: (模型名称, open_clip模型名, pretrained标识, 本地缓存路径/None)
+# 从 SWAB 的 ptm_stats/logits 目录中提取的模型列表
+# 这些模型已经跑过数据集，可以直接使用
 CLIP_FAMILY_MODELS = [
-    # OpenAI CLIP (ResNet 系列) - 使用本地 .pt 文件
-    ('RN50_openai', 'RN50', 'openai', None),  # 有本地 .pt 文件
-    ('RN101_openai', 'RN101', 'openai', None),
-    ('RN50x4_openai', 'RN50x4', 'openai', None),
-    ('RN50x16_openai', 'RN50x16', 'openai', None),
-    ('RN50x64_openai', 'RN50x64', 'openai', None),
+    # OpenAI CLIP (ResNet 系列)
+    ('RN50_openai', 'RN50', 'openai'),
+    ('RN101_openai', 'RN101', 'openai'),
+    ('RN50x4_openai', 'RN50x4', 'openai'),
+    ('RN50x16_openai', 'RN50x16', 'openai'),
+    ('RN50x64_openai', 'RN50x64', 'openai'),
     
     # OpenAI CLIP (ViT 系列)
-    ('ViT-B-32_openai', 'ViT-B-32', 'openai', None),
-    ('ViT-B-16_openai', 'ViT-B-16', 'openai', None),
-    ('ViT-L-14_openai', 'ViT-L-14', 'openai', None),
-    ('ViT-L-14-336_openai', 'ViT-L-14-336', 'openai', None),
+    ('ViT-B-32_openai', 'ViT-B-32', 'openai'),
+    ('ViT-B-16_openai', 'ViT-B-16', 'openai'),
+    ('ViT-L-14_openai', 'ViT-L-14', 'openai'),
+    ('ViT-L-14-336_openai', 'ViT-L-14-336', 'openai'),
     
-    # LAION CLIP (ViT 系列) - 使用 HuggingFace 缓存目录
-    ('ViT-B-32_laion400m_e31', 'ViT-B-32-quickgelu', 'laion400m_e31', None),
-    ('ViT-B-32_laion400m_e32', 'ViT-B-32-quickgelu', 'laion400m_e32', None),
-    ('ViT-B-32_laion2b_s34b_b79k', 'ViT-B-32', 'laion2b_s34b_b79k', 
-     'models--laion--CLIP-ViT-B-32-laion2B-s34B-b79K'),
-    ('ViT-B-16_laion400m_e32', 'ViT-B-16', 'laion400m_e32', None),
-    ('ViT-L-14_laion400m_e31', 'ViT-L-14', 'laion400m_e31', None),
-    ('ViT-L-14_laion400m_e32', 'ViT-L-14', 'laion400m_e32', None),
-    ('ViT-L-14_laion2b_s32b_b82k', 'ViT-L-14', 'laion2b_s32b_b82k',
-     'models--laion--CLIP-ViT-L-14-laion2B-s32B-b82K'),
-    ('ViT-H-14_laion2b_s32b_b79k', 'ViT-H-14', 'laion2b_s32b_b79k',
-     'models--laion--CLIP-ViT-H-14-laion2B-s32B-b79K'),
-    ('ViT-g-14_laion2b_s12b_b42k', 'ViT-g-14', 'laion2b_s12b_b42k',
-     'models--laion--CLIP-ViT-g-14-laion2B-s12B-b42K'),
-    ('ViT-g-14_laion2b_s34b_b88k', 'ViT-g-14', 'laion2b_s34b_b88k',
-     'models--laion--CLIP-ViT-g-14-laion2B-s34B-b88K'),
-    
-    # LAION CLIP (ConvNeXt 系列)
-    ('convnext_base_laion400m_s13b_b51k', 'convnext_base', 'laion400m_s13b_b51k',
-     'models--laion--CLIP-convnext_base-laion400M-s13B-b51K'),
-    ('convnext_base_w_laion2b_s13b_b82k', 'convnext_base_w', 'laion2b_s13b_b82k',
-     'models--laion--CLIP-convnext_base_w-laion2B-s13B-b82K'),
-    ('convnext_base_w_laion2b_s13b_b82k_augreg', 'convnext_base_w', 'laion2b_s13b_b82k_augreg',
-     'models--laion--CLIP-convnext_base_w-laion2B-s13B-b82K-augreg'),
-    ('convnext_base_w_laion_aesthetic_s13b_b82k', 'convnext_base_w', 'laion_aesthetic_s13b_b82k',
-     'models--laion--CLIP-convnext_base_w-laion_aesthetic-s13B-b82K'),
-    ('convnext_base_w_320_laion_aesthetic_s13b_b82k', 'convnext_base_w_320', 'laion_aesthetic_s13b_b82k',
-     'models--laion--CLIP-convnext_base_w_320-laion_aesthetic-s13B-b82K'),
-    ('convnext_base_w_320_laion_aesthetic_s13b_b82k_augreg', 'convnext_base_w_320', 'laion_aesthetic_s13b_b82k_augreg',
-     'models--laion--CLIP-convnext_base_w_320-laion_aesthetic-s13B-b82K-augreg'),
-    ('convnext_large_d_laion2b_s26b_b102k_augreg', 'convnext_large_d', 'laion2b_s26b_b102k_augreg',
-     'models--laion--CLIP-convnext_large_d.laion2B-s26B-b102K-augreg'),
-    ('convnext_large_d_320_laion2b_s29b_b131k_ft', 'convnext_large_d_320', 'laion2b_s29b_b131k_ft',
-     'models--laion--CLIP-convnext_large_d_320.laion2B-s29B-b131K-ft'),
-    ('convnext_large_d_320_laion2b_s29b_b131k_ft_soup', 'convnext_large_d_320', 'laion2b_s29b_b131k_ft_soup',
-     'models--laion--CLIP-convnext_large_d_320.laion2B-s29B-b131K-ft-soup'),
-    
-    # CoCa 模型
-    ('coca_ViT-B-32_laion2b_s13b_b90k', 'coca_ViT-B-32', 'laion2b_s13b_b90k',
-     'models--laion--CoCa-ViT-B-32-laion2B-s13B-b90k'),
-    ('coca_ViT-L-14_laion2b_s13b_b90k', 'coca_ViT-L-14', 'laion2b_s13b_b90k',
-     'models--laion--CoCa-ViT-L-14-laion2B-s13B-b90k'),
-    ('coca_ViT-B-32_mscoco_finetuned_laion2b_s13b_b90k', 'coca_ViT-B-32', 'mscoco_finetuned_laion2b_s13b_b90k',
-     'models--laion--mscoco_finetuned_CoCa-ViT-B-32-laion2B-s13B-b90k'),
-    ('coca_ViT-L-14_mscoco_finetuned_laion2b_s13b_b90k', 'coca_ViT-L-14', 'mscoco_finetuned_laion2b_s13b_b90k',
-     'models--laion--mscoco_finetuned_CoCa-ViT-L-14-laion2B-s13B-b90k'),
+    # LAION CLIP (ViT 系列) - laion400m 系列可正常加载
+    ('ViT-B-32_laion400m_e31', 'ViT-B-32-quickgelu', 'laion400m_e31'),
+    ('ViT-B-32_laion400m_e32', 'ViT-B-32-quickgelu', 'laion400m_e32'),
+    ('ViT-B-16_laion400m_e32', 'ViT-B-16', 'laion400m_e32'),
+    ('ViT-L-14_laion400m_e31', 'ViT-L-14', 'laion400m_e31'),
+    ('ViT-L-14_laion400m_e32', 'ViT-L-14', 'laion400m_e32'),
     
     # 其他 ViT 变体
-    ('ViT-B-16-plus-240_laion400m_e32', 'ViT-B-16-plus-240', 'laion400m_e32', None),
-    ('ViT-B-32-quickgelu_laion400m_e32', 'ViT-B-32-quickgelu', 'laion400m_e32', None),
-    ('ViT-B-32_laion2b_e16', 'ViT-B-32', 'laion2b_e16', None),
+    ('ViT-B-16-plus-240_laion400m_e32', 'ViT-B-16-plus-240', 'laion400m_e32'),
+    ('ViT-B-32-quickgelu_laion400m_e32', 'ViT-B-32-quickgelu', 'laion400m_e32'),
+    ('ViT-B-32_laion2b_e16', 'ViT-B-32', 'laion2b_e16'),
+]
+
+# 需要使用本地缓存加载的 LAION 2B 模型
+# 这些模型的 pretrained 名称需要转换
+LAION_2B_MODELS_LOCAL = [
+    # (ptm_name, model_name, cache_dir_name)
+    ('ViT-B-32_laion2b_s34b_b79k', 'ViT-B-32', 'models--laion--CLIP-ViT-B-32-laion2B-s34B-b79K'),
+    ('ViT-L-14_laion2b_s32b_b82k', 'ViT-L-14', 'models--laion--CLIP-ViT-L-14-laion2B-s32B-b82K'),
+    ('ViT-H-14_laion2b_s32b_b79k', 'ViT-H-14', 'models--laion--CLIP-ViT-H-14-laion2B-s32B-b79K'),
+    ('ViT-g-14_laion2b_s12b_b42k', 'ViT-g-14', 'models--laion--CLIP-ViT-g-14-laion2B-s12B-b42K'),
+    ('ViT-g-14_laion2b_s34b_b88k', 'ViT-g-14', 'models--laion--CLIP-ViT-g-14-laion2B-s34B-b88K'),
+    
+    # ConvNeXt 系列
+    ('convnext_base_laion400m_s13b_b51k', 'convnext_base', 'models--laion--CLIP-convnext_base-laion400M-s13B-b51K'),
+    ('convnext_base_w_laion2b_s13b_b82k', 'convnext_base_w', 'models--laion--CLIP-convnext_base_w-laion2B-s13B-b82K'),
+    ('convnext_base_w_laion2b_s13b_b82k_augreg', 'convnext_base_w', 'models--laion--CLIP-convnext_base_w-laion2B-s13B-b82K-augreg'),
+    ('convnext_base_w_laion_aesthetic_s13b_b82k', 'convnext_base_w', 'models--laion--CLIP-convnext_base_w-laion_aesthetic-s13B-b82K'),
+    ('convnext_base_w_320_laion_aesthetic_s13b_b82k', 'convnext_base_w_320', 'models--laion--CLIP-convnext_base_w_320-laion_aesthetic-s13B-b82K'),
+    ('convnext_base_w_320_laion_aesthetic_s13b_b82k_augreg', 'convnext_base_w_320', 'models--laion--CLIP-convnext_base_w_320-laion_aesthetic-s13B-b82K-augreg'),
+    ('convnext_large_d_laion2b_s26b_b102k_augreg', 'convnext_large_d', 'models--laion--CLIP-convnext_large_d.laion2B-s26B-b102K-augreg'),
+    ('convnext_large_d_320_laion2b_s29b_b131k_ft', 'convnext_large_d_320', 'models--laion--CLIP-convnext_large_d_320.laion2B-s29B-b131K-ft'),
+    ('convnext_large_d_320_laion2b_s29b_b131k_ft_soup', 'convnext_large_d_320', 'models--laion--CLIP-convnext_large_d_320.laion2B-s29B-b131K-ft-soup'),
+    
+    # CoCa 系列
+    ('coca_ViT-B-32_laion2b_s13b_b90k', 'coca_ViT-B-32', 'models--laion--CoCa-ViT-B-32-laion2B-s13B-b90k'),
+    ('coca_ViT-L-14_laion2b_s13b_b90k', 'coca_ViT-L-14', 'models--laion--CoCa-ViT-L-14-laion2B-s13B-b90k'),
+    ('coca_ViT-B-32_mscoco_finetuned_laion2b_s13b_b90k', 'coca_ViT-B-32', 'models--laion--mscoco_finetuned_CoCa-ViT-B-32-laion2B-s13B-b90k'),
+    ('coca_ViT-L-14_mscoco_finetuned_laion2b_s13b_b90k', 'coca_ViT-L-14', 'models--laion--mscoco_finetuned_CoCa-ViT-L-14-laion2B-s13B-b90k'),
 ]
 
 
 # ============================================================================
-# Benchmark B: VLMs from Various Pre-training Algorithms (17个模型)
+# Benchmark B: VLMs from Various Pre-training Algorithms
+# 使用用户提供的模型路径
 # ============================================================================
 
-# 本地模型路径配置 - 按照实际目录结构
-BENCHMARK_B_MODELS = {
-    # VEGA/models 目录下的模型
-    "AltCLIP": {
-        "path": os.path.join(VEGA_MODELS_DIR, "BAAI-AltCLIP"),
-        "hf_name": "BAAI/AltCLIP",
-        "type": "transformers"
-    },
-    "StreetCLIP": {
-        "path": os.path.join(VEGA_MODELS_DIR, "geolocal-street-clip"),
-        "hf_name": "geolocal/StreetCLIP",
-        "type": "transformers"
-    },
-    "SigLIP_base": {
-        "path": os.path.join(VEGA_MODELS_DIR, "google-siglip-base-patch16-224"),
-        "hf_name": "google/siglip-base-patch16-224",
-        "type": "transformers"
-    },
-    "SigLIP_so400m": {
-        "path": os.path.join(VEGA_MODELS_DIR, "google-siglip-so400m-patch14-384"),
-        "hf_name": "google/siglip-so400m-patch14-384",
-        "type": "transformers"
-    },
-    "BioCLIP": {
-        "path": os.path.join(VEGA_MODELS_DIR, "imageomics-bioclip"),
-        "hf_name": "imageomics/bioclip",
-        "type": "open_clip"  # BioCLIP 使用 open_clip 格式
-    },
-    "ALIGN": {
-        "path": os.path.join(VEGA_MODELS_DIR, "kakaobrain-align-base"),
-        "hf_name": "kakaobrain/align-base",
-        "type": "transformers"
-    },
-    "MetaCLIP": {
-        "path": os.path.join(VEGA_MODELS_DIR, "metaclip-b32-fullcc2.5b"),
-        "hf_name": "facebook/metaclip-b32-fullcc2.5b",
-        "type": "open_clip"
-    },
-    "BiomedCLIP": {
-        "path": os.path.join(VEGA_MODELS_DIR, "microsoft-BiomedCLIP-PubMedBERT_256-vit_base_patcg16_224"),
-        "hf_name": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
-        "type": "biomedclip"  # BiomedCLIP 使用特殊的 transformers 架构
-    },
-    "GroupViT": {
-        "path": os.path.join(VEGA_MODELS_DIR, "nvidia-groupvit-gcc-yfcc"),
-        "hf_name": "nvidia/groupvit-gcc-yfcc",
-        "type": "transformers"
-    },
-    "QuiltNet": {
-        "path": os.path.join(VEGA_MODELS_DIR, "wisdomik-QuiltNet-B-32"),
-        "hf_name": "wisdomik/QuiltNet-B-32",
-        "type": "open_clip"
-    },
+# VEGA 论文中使用的各种预训练算法模型
+# "We collect 17 models from Hugging Face from 10 commonly used VLM pre-training algorithms"
+# 包括: ALIGN, AltCLIP, CLIP, GroupViT, SigLIP, StreetCLIP, MetaCLIP, BiomedCLIP, QuiltNet, BioCLIP
+
+# 模型路径配置 (用户提供的)
+ADDITIONAL_MODEL_PATHS = {
+    # Benchmark B models from ~/models
+    "AltCLIP": "/root/mxy/models/BAAI-AltCLIP",
+    "StreetCLIP": "/root/mxy/models/geolocal-street-clip",
+    "SigLIP_base": "/root/mxy/models/google-siglip-base-patch16-224",
+    "SigLIP_so400m": "/root/mxy/models/google-siglip-so400m-patch14-384",
+    "BioCLIP": "/root/mxy/models/imageomics-bioclip",
+    "ALIGN": "/root/mxy/models/kakaobrain-align-base",
+    "MetaCLIP": "/root/mxy/models/metaclip-b32-fullcc2.5b",
+    "BiomedCLIP": "/root/mxy/models/microsoft-BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+    "GroupViT": "/root/mxy/models/nvidia-groupvit-gcc-yfcc",
+    "QuiltNet": "/root/mxy/models/wisdomik-QuiltNet-B-32",
 }
 
-# 额外的 Benchmark B 模型（可能需要下载或有其他配置）
-EXTRA_BENCHMARK_B_MODELS = {
-    # 这些模型可能需要额外处理
-    "CLIP_ViT-B-32": {
-        "path": os.path.join(VEGA_MODELS_DIR, "openai-clip-vit-base-patch32"),
-        "hf_name": "openai/clip-vit-base-patch32",
-        "type": "transformers"
-    },
-    "CLIP_ViT-L-14": {
-        "path": os.path.join(VEGA_MODELS_DIR, "openai-clip-vit-large-patch14"),
-        "hf_name": "openai/clip-vit-large-patch14",
-        "type": "transformers"
-    },
+# HuggingFace 模型名称映射
+HUGGINGFACE_MODELS = {
+    "AltCLIP": "BAAI/AltCLIP",
+    "StreetCLIP": "geolocal/StreetCLIP",
+    "SigLIP_base": "google/siglip-base-patch16-224",
+    "SigLIP_so400m": "google/siglip-so400m-patch14-384",
+    "BioCLIP": "imageomics/bioclip",
+    "ALIGN": "kakaobrain/align-base",
+    "MetaCLIP": "facebook/metaclip-b32-fullcc2.5b",
+    "BiomedCLIP": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+    "GroupViT": "nvidia/groupvit-gcc-yfcc",
+    "QuiltNet": "wisdomik/QuiltNet-B-32",
+}
+
+# 需要 open_clip 方式加载的模型
+OPENCLIP_STYLE_MODELS = {
+    "BioCLIP": ("ViT-B-16", "bioclip"),
+    "BiomedCLIP": ("ViT-B-16", "biomedclip"),
+    "QuiltNet": ("ViT-B-32", "quiltnet"),
 }
 
 
 # ============================================================================
-# BLIP 和 BEIT3 模型
+# BLIP 和 BEIT3 模型 (已在 SWAB 中有中间结果)
 # ============================================================================
 
-# BLIP 模型配置 - 使用本地 checkpoint
-BLIP_MODELS = {
-    'BLIP_retrieval_base_coco': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'model_base_retrieval_coco.pth'),
-        'config': 'base',
-    },
-    'BLIP_retrieval_base_f30k': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'model_base_retrieval_flickr.pth'),
-        'config': 'base',
-    },
-    'BLIP_retrieval_large_coco': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'model_large_retrieval_coco.pth'),
-        'config': 'large',
-    },
-    'BLIP_retrieval_large_f30k': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'model_large_retrieval_flickr.pth'),
-        'config': 'large',
-    },
-}
-
-# BEIT3 模型配置 - 使用本地 checkpoint
-BEIT3_MODELS = {
-    'BEIT3_retrieval_base_coco': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'beit3_base_patch16_384_coco_retrieval.pth'),
-        'config': 'base',
-    },
-    'BEIT3_retrieval_base_f30k': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'beit3_base_patch16_384_f30k_retrieval.pth'),
-        'config': 'base',
-    },
-    'BEIT3_retrieval_large_coco': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'beit3_large_patch16_384_coco_retrieval.pth'),
-        'config': 'large',
-    },
-    'BEIT3_retrieval_large_f30k': {
-        'checkpoint': os.path.join(HF_CACHE_DIR, 'beit3_large_patch16_384_f30k_retrieval.pth'),
-        'config': 'large',
-    },
-}
+# 这些模型已经在 ptm_stats/logits 中有数据
+# BLIP 和 BEIT3 需要特殊处理
+BLIP_BEIT3_MODELS = [
+    'BLIP_retrieval_base_coco',
+    'BLIP_retrieval_base_f30k',
+    'BLIP_retrieval_large_coco',
+    'BLIP_retrieval_large_f30k',
+    'BEIT3_retrieval_base_coco',
+    'BEIT3_retrieval_base_f30k',
+    'BEIT3_retrieval_large_coco',
+    'BEIT3_retrieval_large_f30k',
+]
 
 
 # ============================================================================
@@ -325,54 +247,12 @@ def load_all_classnames(datasets: List[str] = None) -> Dict[str, List[str]]:
 
 
 # ============================================================================
-# 模型加载函数
+# 模型加载和特征提取
 # ============================================================================
 
-def find_hf_cache_model(cache_dir: str, model_subdir: str) -> Optional[str]:
-    """在 HuggingFace 缓存目录中查找模型文件路径"""
-    full_path = os.path.join(cache_dir, model_subdir)
-    if os.path.exists(full_path):
-        # 查找 snapshots 目录
-        snapshots_dir = os.path.join(full_path, 'snapshots')
-        if os.path.exists(snapshots_dir):
-            snapshots = os.listdir(snapshots_dir)
-            if snapshots:
-                snapshot_path = os.path.join(snapshots_dir, snapshots[0])
-                # 查找模型文件
-                model_file = os.path.join(snapshot_path, 'open_clip_pytorch_model.bin')
-                if os.path.exists(model_file):
-                    return model_file
-                # 也检查其他可能的模型文件名
-                for fname in ['pytorch_model.bin', 'model.safetensors']:
-                    candidate = os.path.join(snapshot_path, fname)
-                    if os.path.exists(candidate):
-                        return candidate
-    return None
-
-
-def load_open_clip_model_cached(
-    model_name: str, 
-    pretrained: str, 
-    cache_path: Optional[str] = None,
-    device: str = 'cuda'
-):
-    """加载 open_clip 模型，支持本地缓存"""
+def load_open_clip_model(model_name: str, pretrained: str, device: str = 'cuda'):
+    """加载 open_clip 模型"""
     try:
-        # 如果有本地缓存路径，尝试从缓存加载
-        if cache_path:
-            full_cache_path = find_hf_cache_model(HF_CACHE_DIR, cache_path)
-            if full_cache_path:
-                print(f"  从本地缓存加载: {full_cache_path}")
-                # open_clip 可以从本地目录加载
-                model, _, preprocess = open_clip.create_model_and_transforms(
-                    model_name, 
-                    pretrained=full_cache_path,
-                    device=device
-                )
-                tokenizer = open_clip.get_tokenizer(model_name)
-                return model, tokenizer
-        
-        # 尝试直接加载（可能在系统缓存中）
         model, _, preprocess = open_clip.create_model_and_transforms(
             model_name, 
             pretrained=pretrained,
@@ -380,9 +260,44 @@ def load_open_clip_model_cached(
         )
         tokenizer = open_clip.get_tokenizer(model_name)
         return model, tokenizer
-        
     except Exception as e:
         print(f"  [!] 加载模型失败 {model_name} ({pretrained}): {e}")
+        return None, None
+
+
+def load_open_clip_from_cache(model_name: str, cache_dir: str, device: str = 'cuda'):
+    """从本地缓存加载 open_clip 模型"""
+    try:
+        # 构建缓存路径
+        cache_path = os.path.join(SWAB_ROOT, 'model/checkpoint', cache_dir)
+        
+        if not os.path.exists(cache_path):
+            print(f"  [!] 缓存目录不存在: {cache_path}")
+            return None, None
+        
+        # 查找 snapshot 目录
+        snapshots_dir = os.path.join(cache_path, 'snapshots')
+        if os.path.exists(snapshots_dir):
+            snapshot_ids = os.listdir(snapshots_dir)
+            if snapshot_ids:
+                model_path = os.path.join(snapshots_dir, snapshot_ids[0])
+            else:
+                model_path = cache_path
+        else:
+            model_path = cache_path
+        
+        print(f"  从缓存加载: {model_path}")
+        
+        # 使用 open_clip 从本地路径加载
+        model, _, preprocess = open_clip.create_model_and_transforms(
+            model_name, 
+            pretrained=model_path,
+            device=device
+        )
+        tokenizer = open_clip.get_tokenizer(model_name)
+        return model, tokenizer
+    except Exception as e:
+        print(f"  [!] 从缓存加载失败 {model_name}: {e}")
         return None, None
 
 
@@ -393,13 +308,30 @@ def extract_text_features(
     template: str = DEFAULT_TEMPLATE,
     device: str = 'cuda'
 ) -> np.ndarray:
-    """使用模型的 text encoder 提取类别文本特征"""
+    """
+    使用模型的 text encoder 提取类别文本特征
+    
+    Args:
+        model: open_clip 模型
+        tokenizer: 对应的 tokenizer
+        classnames: 类别名称列表
+        template: prompt 模板
+        device: 设备
+        
+    Returns:
+        np.ndarray: [K, D] 类别文本嵌入矩阵
+    """
     model.eval()
     
     with torch.no_grad():
+        # 构造 prompt
         prompts = [template.format(c) for c in classnames]
+        
+        # Tokenize
         tokens = tokenizer(prompts)
         tokens = tokens.to(device)
+        
+        # 编码
         text_features = model.encode_text(tokens)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
     
@@ -407,21 +339,20 @@ def extract_text_features(
 
 
 def extract_features_for_openclip_model(
-    model_config: Tuple,
+    model_config: Tuple[str, str, str],
     all_classnames: Dict[str, List[str]],
     device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
-    """为 open_clip 模型提取所有数据集的文本特征"""
-    if len(model_config) == 4:
-        ptm_name, model_name, pretrained, cache_path = model_config
-    else:
-        ptm_name, model_name, pretrained = model_config
-        cache_path = None
+    """
+    为 open_clip 模型提取所有数据集的文本特征
+    """
+    ptm_name, model_name, pretrained = model_config
     
     print(f"\n处理模型: {ptm_name}")
     print(f"  open_clip: {model_name}, pretrained: {pretrained}")
     
-    model, tokenizer = load_open_clip_model_cached(model_name, pretrained, cache_path, device)
+    # 加载模型
+    model, tokenizer = load_open_clip_model(model_name, pretrained, device)
     if model is None:
         return {}
     
@@ -440,32 +371,69 @@ def extract_features_for_openclip_model(
     return results
 
 
-def extract_features_for_hf_model_local(
-    model_name: str,
-    model_config: Dict,
+def extract_features_for_cached_model(
+    model_config: Tuple[str, str, str],
     all_classnames: Dict[str, List[str]],
     device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
-    """使用本地 HuggingFace 模型提取文本特征"""
-    from transformers import AutoModel, AutoProcessor, AutoTokenizer
+    """
+    从本地缓存加载 open_clip 模型并提取特征
+    """
+    ptm_name, model_name, cache_dir = model_config
+    
+    print(f"\n处理模型 (缓存): {ptm_name}")
+    print(f"  open_clip: {model_name}, cache: {cache_dir}")
+    
+    # 从缓存加载模型
+    model, tokenizer = load_open_clip_from_cache(model_name, cache_dir, device)
+    if model is None:
+        return {}
+    
+    results = {}
+    
+    for dataset, classnames in all_classnames.items():
+        try:
+            features = extract_text_features(
+                model, tokenizer, classnames, DEFAULT_TEMPLATE, device
+            )
+            results[dataset] = features
+            print(f"  ✓ {dataset}: {features.shape}")
+        except Exception as e:
+            print(f"  [!] {dataset} 失败: {e}")
+    
+    return results
+
+
+def extract_features_for_hf_model(
+    model_name: str,
+    model_path: str,
+    all_classnames: Dict[str, List[str]],
+    device: str = 'cuda'
+) -> Dict[str, np.ndarray]:
+    """
+    为 HuggingFace 模型提取文本特征
+    
+    支持: AltCLIP, SigLIP, BioCLIP, ALIGN, etc.
+    """
+    from transformers import AutoModel, AutoProcessor
     
     print(f"\n处理 HuggingFace 模型: {model_name}")
-    
-    model_path = model_config['path']
-    model_type = model_config.get('type', 'transformers')
-    
     print(f"  路径: {model_path}")
-    print(f"  类型: {model_type}")
+    
+    # 检查是否需要用 open_clip 方式加载
+    if model_name in OPENCLIP_STYLE_MODELS:
+        return extract_features_for_openclip_style_model(model_name, model_path, all_classnames, device)
     
     try:
-        # 检查本地路径是否存在
+        # 尝试从本地路径加载
         if os.path.exists(model_path):
-            print(f"  使用本地模型文件")
-            processor = AutoProcessor.from_pretrained(model_path, local_files_only=True)
-            model = AutoModel.from_pretrained(model_path, local_files_only=True).to(device)
+            processor = AutoProcessor.from_pretrained(model_path)
+            model = AutoModel.from_pretrained(model_path).to(device)
         else:
-            print(f"  [!] 本地路径不存在: {model_path}")
-            return {}
+            # 从 HuggingFace Hub 加载
+            hf_name = HUGGINGFACE_MODELS.get(model_name, model_name)
+            processor = AutoProcessor.from_pretrained(hf_name)
+            model = AutoModel.from_pretrained(hf_name).to(device)
         
         model.eval()
         results = {}
@@ -473,30 +441,19 @@ def extract_features_for_hf_model_local(
         with torch.no_grad():
             for dataset, classnames in all_classnames.items():
                 try:
-                    # 构造提示
-                    if 'siglip' in model_name.lower():
-                        prompts = [f"a photo of a {c}" for c in classnames]
-                    else:
-                        prompts = [f"a photo of a {c}" for c in classnames]
+                    prompts = [f"a photo of a {c}" for c in classnames]
                     
                     inputs = processor(text=prompts, return_tensors="pt", padding=True)
                     inputs = {k: v.to(device) for k, v in inputs.items()}
                     
-                    # 获取文本特征
+                    # 不同模型的接口可能不同
                     if hasattr(model, 'get_text_features'):
                         text_features = model.get_text_features(**inputs)
                     elif hasattr(model, 'encode_text'):
                         text_features = model.encode_text(inputs['input_ids'])
                     else:
                         outputs = model(**inputs)
-                        # 不同模型输出不同
-                        if hasattr(outputs, 'text_embeds'):
-                            text_features = outputs.text_embeds
-                        elif hasattr(outputs, 'last_hidden_state'):
-                            text_features = outputs.last_hidden_state[:, 0, :]
-                        else:
-                            print(f"  [!] 无法获取文本特征")
-                            continue
+                        text_features = outputs.last_hidden_state[:, 0, :]
                     
                     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
                     results[dataset] = text_features.cpu().numpy()
@@ -512,213 +469,101 @@ def extract_features_for_hf_model_local(
         return {}
 
 
-def extract_features_for_open_clip_hf(
+def extract_features_for_openclip_style_model(
     model_name: str,
-    model_config: Dict,
+    model_path: str,
     all_classnames: Dict[str, List[str]],
     device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
-    """加载使用 open_clip 格式的 HuggingFace 模型 (如 BioCLIP)"""
-    import open_clip
-    
-    print(f"\n处理 open_clip 格式模型: {model_name}")
-    
-    model_path = model_config['path']
-    print(f"  路径: {model_path}")
-    
-    try:
-        # 查找模型文件
-        if os.path.exists(model_path):
-            # 尝试查找 open_clip_model.bin 或类似文件
-            model_file = None
-            for f in ['open_clip_pytorch_model.bin', 'pytorch_model.bin', 'model.safetensors']:
-                candidate = os.path.join(model_path, f)
-                if os.path.exists(candidate):
-                    model_file = candidate
-                    break
-            
-            if model_file:
-                print(f"  找到模型文件: {model_file}")
-                # 需要知道对应的架构
-                if 'bioclip' in model_name.lower():
-                    architecture = 'ViT-B-16'
-                elif 'metaclip' in model_name.lower():
-                    architecture = 'ViT-B-32'
-                elif 'quilt' in model_name.lower():
-                    architecture = 'ViT-B-32'
-                else:
-                    architecture = 'ViT-B-16'  # 默认
-                
-                model, _, preprocess = open_clip.create_model_and_transforms(
-                    architecture,
-                    pretrained=model_file,
-                    device=device
-                )
-                tokenizer = open_clip.get_tokenizer(architecture)
-                
-                results = {}
-                for dataset, classnames in all_classnames.items():
-                    try:
-                        features = extract_text_features(
-                            model, tokenizer, classnames, DEFAULT_TEMPLATE, device
-                        )
-                        results[dataset] = features
-                        print(f"  ✓ {dataset}: {features.shape}")
-                    except Exception as e:
-                        print(f"  [!] {dataset} 失败: {e}")
-                
-                return results
-            else:
-                print(f"  [!] 未找到模型文件")
-                return {}
-        else:
-            print(f"  [!] 路径不存在: {model_path}")
-            return {}
-            
-    except Exception as e:
-        print(f"  [!] 加载失败: {e}")
-        return {}
-
-
-def extract_features_for_biomedclip(
-    model_name: str,
-    model_config: Dict,
-    all_classnames: Dict[str, List[str]],
-    device: str = 'cuda'
-) -> Dict[str, np.ndarray]:
-    """专门处理 BiomedCLIP 模型 - 使用 transformers 架构
-    
-    BiomedCLIP 使用 BERT 作为文本编码器，而不是标准的 CLIP 文本编码器。
-    需要使用 open_clip 的特殊加载方式。
     """
-    print(f"\n处理 BiomedCLIP 模型: {model_name}")
+    使用 open_clip 方式加载需要特殊处理的模型
+    如 BioCLIP, BiomedCLIP, QuiltNet
+    """
+    print(f"  使用 open_clip 方式加载")
     
-    model_path = model_config['path']
-    print(f"  路径: {model_path}")
+    if model_name not in OPENCLIP_STYLE_MODELS:
+        print(f"  [!] 未找到模型配置: {model_name}")
+        return {}
+    
+    model_arch, pretrained_name = OPENCLIP_STYLE_MODELS[model_name]
     
     try:
-        import open_clip
-        
-        # BiomedCLIP 使用 open_clip_config.json
-        config_file = os.path.join(model_path, 'open_clip_config.json')
-        model_file = os.path.join(model_path, 'open_clip_pytorch_model.bin')
-        
-        if not os.path.exists(model_file):
-            print(f"  [!] 模型文件不存在: {model_file}")
-            return {}
-        
-        if not os.path.exists(config_file):
-            print(f"  [!] 配置文件不存在: {config_file}")
-            return {}
-        
-        print(f"  找到配置文件: {config_file}")
-        print(f"  找到模型文件: {model_file}")
-        
-        # 读取配置获取模型架构
-        with open(config_file, 'r') as f:
-            config = json.load(f)
-        
-        # BiomedCLIP 使用 ViT-B-16 架构，但文本编码器是 PubMedBERT
-        # 需要使用 open_clip.create_model_from_pretrained
-        try:
-            # 方法1: 直接从配置和权重加载
-            model = open_clip.create_model(
-                'ViT-B-16',
-                pretrained='openai',  # 先创建基础模型
+        # 检查本地路径
+        if os.path.exists(model_path):
+            print(f"  从本地路径加载: {model_path}")
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                model_arch, 
+                pretrained=model_path,
                 device=device
             )
-            # 加载 BiomedCLIP 的权重
-            state_dict = torch.load(model_file, map_location=device)
-            model.load_state_dict(state_dict, strict=False)
-            tokenizer = open_clip.get_tokenizer('ViT-B-16')
-        except Exception as e1:
-            print(f"  方法1失败: {e1}")
-            # 方法2: 使用 create_model_and_transforms 从本地加载
-            try:
-                model, _, preprocess = open_clip.create_model_and_transforms(
-                    'ViT-B-16',
-                    pretrained=model_file,
-                    device=device
-                )
-                tokenizer = open_clip.get_tokenizer('ViT-B-16')
-            except Exception as e2:
-                print(f"  方法2也失败: {e2}")
-                return {}
+        else:
+            print(f"  从 pretrained 加载: {pretrained_name}")
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                model_arch, 
+                pretrained=pretrained_name,
+                device=device
+            )
         
-        model.eval()
+        tokenizer = open_clip.get_tokenizer(model_arch)
+        
         results = {}
-        
-        with torch.no_grad():
-            for dataset, classnames in all_classnames.items():
-                try:
-                    # BiomedCLIP 的提示格式
-                    prompts = [f"a photo of a {c}" for c in classnames]
-                    
-                    tokens = tokenizer(prompts)
-                    tokens = tokens.to(device)
-                    
-                    text_features = model.encode_text(tokens)
-                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                    
-                    results[dataset] = text_features.cpu().numpy()
-                    print(f"  ✓ {dataset}: {results[dataset].shape}")
-                    
-                except Exception as e:
-                    print(f"  [!] {dataset} 失败: {e}")
+        for dataset, classnames in all_classnames.items():
+            try:
+                features = extract_text_features(
+                    model, tokenizer, classnames, DEFAULT_TEMPLATE, device
+                )
+                results[dataset] = features
+                print(f"  ✓ {dataset}: {features.shape}")
+            except Exception as e:
+                print(f"  [!] {dataset} 失败: {e}")
         
         return results
         
     except Exception as e:
-        print(f"  [!] 加载 BiomedCLIP 失败: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"  [!] open_clip 加载失败: {e}")
         return {}
 
 
-def extract_features_for_blip_local(
+def extract_features_for_blip(
     model_name: str,
-    model_config: Dict,
     all_classnames: Dict[str, List[str]],
     swab_root: str,
     device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
-    """使用本地 BLIP 模型提取文本特征"""
+    """使用 BLIP 模型提取文本特征"""
+    # 动态导入，避免路径问题
+    sys.path.insert(0, swab_root)
+    from model.blip_class import BLIP
+    
     print(f"\n处理 BLIP 模型: {model_name}")
     
-    checkpoint_path = model_config['checkpoint']
+    # 解析模型配置
+    if 'base' in model_name:
+        model_size = 'base'
+    else:
+        model_size = 'large'
     
-    if not os.path.exists(checkpoint_path):
-        print(f"  [!] Checkpoint 不存在: {checkpoint_path}")
-        return {}
-    
-    print(f"  Checkpoint: {checkpoint_path}")
+    if 'coco' in model_name:
+        ptm_dataset = 'coco'
+    else:
+        ptm_dataset = 'flickr'
     
     try:
-        # 使用 SWAB 中的 BLIP 实现
-        # 需要将 SWAB_ROOT 和 SWAB_ROOT/model 都添加到路径中
-        # 因为 blip_class.py 内部使用 from model.blip.blip_model import ...
-        if swab_root not in sys.path:
-            sys.path.insert(0, swab_root)
-        model_path = os.path.join(swab_root, 'model')
-        if model_path not in sys.path:
-            sys.path.insert(0, model_path)
-        from blip_class import BlipRetrieval
-        
-        # 创建 BLIP 模型
-        config_type = model_config['config']
-        blip = BlipRetrieval(config_type, checkpoint_path, device)
+        blip = BLIP(model_size=model_size, model_ptm_dataset=ptm_dataset)
         
         results = {}
         
         for dataset, classnames in all_classnames.items():
             try:
-                # BLIP 使用特定的提示格式
-                prompts = [f"a photo of a {c}" for c in classnames]
+                text_feat_list = []
+                for class_name in classnames:
+                    feat = blip.encode_text(class_name)
+                    text_feat_list.append(feat.squeeze().unsqueeze(0))
                 
-                text_features = blip.extract_text_features(prompts)
-                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                text_classifier = torch.cat(text_feat_list, dim=0)
+                text_classifier = text_classifier / text_classifier.norm(dim=-1, keepdim=True)
                 
-                results[dataset] = text_features.cpu().numpy()
+                results[dataset] = text_classifier.cpu().numpy()
                 print(f"  ✓ {dataset}: {results[dataset].shape}")
                 
             except Exception as e:
@@ -728,54 +573,44 @@ def extract_features_for_blip_local(
         
     except Exception as e:
         print(f"  [!] 加载 BLIP 模型失败: {e}")
-        import traceback
-        traceback.print_exc()
         return {}
 
 
-def extract_features_for_beit3_local(
+def extract_features_for_beit3(
     model_name: str,
-    model_config: Dict,
     all_classnames: Dict[str, List[str]],
     swab_root: str,
     device: str = 'cuda'
 ) -> Dict[str, np.ndarray]:
-    """使用本地 BEIT3 模型提取文本特征"""
+    """使用 BEIT3 模型提取文本特征"""
+    # 动态导入，避免路径问题
+    sys.path.insert(0, swab_root)
+    from model.beit_class import BEIT3
+    
     print(f"\n处理 BEIT3 模型: {model_name}")
     
-    checkpoint_path = model_config['checkpoint']
+    # 解析模型配置
+    if 'base' in model_name:
+        model_size = 'base'
+    else:
+        model_size = 'large'
     
-    if not os.path.exists(checkpoint_path):
-        print(f"  [!] Checkpoint 不存在: {checkpoint_path}")
-        return {}
-    
-    print(f"  Checkpoint: {checkpoint_path}")
+    if 'coco' in model_name:
+        ptm_dataset = 'coco'
+    else:
+        ptm_dataset = 'f30k'
     
     try:
-        # 使用 SWAB 中的 BEIT3 实现
-        # 需要将 SWAB_ROOT 和 SWAB_ROOT/model 都添加到路径中
-        if swab_root not in sys.path:
-            sys.path.insert(0, swab_root)
-        model_path = os.path.join(swab_root, 'model')
-        if model_path not in sys.path:
-            sys.path.insert(0, model_path)
-        from beit_class import BEIT3Retrieval
-        
-        # 创建 BEIT3 模型
-        config_type = model_config['config']
-        beit3 = BEIT3Retrieval(config_type, checkpoint_path, device)
+        beit3 = BEIT3(model_size=model_size, model_ptm_dataset=ptm_dataset)
         
         results = {}
         
         for dataset, classnames in all_classnames.items():
             try:
-                # BEIT3 使用特定的提示格式
-                prompts = [f"a photo of a {c}" for c in classnames]
+                text_classifier = beit3.get_text_classifier(classnames)
+                text_classifier = text_classifier / text_classifier.norm(dim=-1, keepdim=True)
                 
-                text_features = beit3.extract_text_features(prompts)
-                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                
-                results[dataset] = text_features.cpu().numpy()
+                results[dataset] = text_classifier.cpu().numpy()
                 print(f"  ✓ {dataset}: {results[dataset].shape}")
                 
             except Exception as e:
@@ -785,8 +620,6 @@ def extract_features_for_beit3_local(
         
     except Exception as e:
         print(f"  [!] 加载 BEIT3 模型失败: {e}")
-        import traceback
-        traceback.print_exc()
         return {}
 
 
@@ -822,13 +655,12 @@ def load_existing_features(model_name: str) -> Dict[str, np.ndarray]:
 def main():
     """主函数"""
     print("=" * 70)
-    print("提取 VEGA 所需的类别文本特征 (离线模式)")
+    print("提取 VEGA 所需的类别文本特征")
     print("=" * 70)
     
     # 检查 CUDA
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"使用设备: {device}")
-    print(f"离线模式: HF_HUB_OFFLINE={os.environ.get('HF_HUB_OFFLINE', 'not set')}")
     
     # 加载所有类别名
     print("\n加载数据集类别名:")
@@ -846,15 +678,34 @@ def main():
     print("Benchmark A: VLMs from CLIP Family")
     print("=" * 70)
     
+    # 处理可以直接加载的模型
     for model_config in CLIP_FAMILY_MODELS:
         ptm_name = model_config[0]
         
+        # 检查是否已存在
         existing = load_existing_features(ptm_name)
         if existing:
             print(f"\n[跳过] {ptm_name} 已存在 ({len(existing)} 数据集)")
             continue
         
+        # 提取特征
         features = extract_features_for_openclip_model(model_config, all_classnames, device)
+        
+        if features:
+            save_text_features(ptm_name, features)
+    
+    # 处理需要从本地缓存加载的模型
+    for model_config in LAION_2B_MODELS_LOCAL:
+        ptm_name = model_config[0]
+        
+        # 检查是否已存在
+        existing = load_existing_features(ptm_name)
+        if existing:
+            print(f"\n[跳过] {ptm_name} 已存在 ({len(existing)} 数据集)")
+            continue
+        
+        # 从缓存加载并提取特征
+        features = extract_features_for_cached_model(model_config, all_classnames, device)
         
         if features:
             save_text_features(ptm_name, features)
@@ -866,27 +717,15 @@ def main():
     print("Benchmark B: VLMs from Various Pre-training Algorithms")
     print("=" * 70)
     
-    for model_name, model_config in BENCHMARK_B_MODELS.items():
+    for model_name in ADDITIONAL_MODEL_PATHS.keys():
+        # 检查是否已存在
         existing = load_existing_features(model_name)
         if existing:
             print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
             continue
         
-        model_type = model_config.get('type', 'transformers')
-        
-        if model_type == 'biomedclip':
-            # BiomedCLIP 需要特殊处理
-            features = extract_features_for_biomedclip(
-                model_name, model_config, all_classnames, device
-            )
-        elif model_type == 'open_clip':
-            features = extract_features_for_open_clip_hf(
-                model_name, model_config, all_classnames, device
-            )
-        else:
-            features = extract_features_for_hf_model_local(
-                model_name, model_config, all_classnames, device
-            )
+        model_path = ADDITIONAL_MODEL_PATHS[model_name]
+        features = extract_features_for_hf_model(model_name, model_path, all_classnames, device)
         
         if features:
             save_text_features(model_name, features)
@@ -898,18 +737,17 @@ def main():
     print("BLIP 模型")
     print("=" * 70)
     
-    for model_name, model_config in BLIP_MODELS.items():
-        existing = load_existing_features(model_name)
-        if existing:
-            print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
-            continue
-        
-        features = extract_features_for_blip_local(
-            model_name, model_config, all_classnames, SWAB_ROOT, device
-        )
-        
-        if features:
-            save_text_features(model_name, features)
+    for model_name in BLIP_BEIT3_MODELS:
+        if model_name.startswith('BLIP'):
+            # 检查是否已存在
+            existing = load_existing_features(model_name)
+            if existing:
+                print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
+                continue
+            
+            features = extract_features_for_blip(model_name, all_classnames, SWAB_ROOT, device)
+            if features:
+                save_text_features(model_name, features)
     
     # =========================================================================
     # BEIT3 模型
@@ -918,18 +756,16 @@ def main():
     print("BEIT3 模型")
     print("=" * 70)
     
-    for model_name, model_config in BEIT3_MODELS.items():
-        existing = load_existing_features(model_name)
-        if existing:
-            print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
-            continue
-        
-        features = extract_features_for_beit3_local(
-            model_name, model_config, all_classnames, SWAB_ROOT, device
-        )
-        
-        if features:
-            save_text_features(model_name, features)
+    for model_name in BLIP_BEIT3_MODELS:
+        if model_name.startswith('BEIT3'):
+            existing = load_existing_features(model_name)
+            if existing:
+                print(f"\n[跳过] {model_name} 已存在 ({len(existing)} 数据集)")
+                continue
+            
+            features = extract_features_for_beit3(model_name, all_classnames, SWAB_ROOT, device)
+            if features:
+                save_text_features(model_name, features)
     
     print("\n" + "=" * 70)
     print("完成！")
@@ -969,105 +805,36 @@ def verify_features():
             print(f"  {dataset}: shape={features.shape}, dtype={features.dtype}")
 
 
-def print_model_status():
-    """打印模型状态"""
+def print_vega_setup():
+    """打印 VEGA 实验设置"""
     print("\n" + "=" * 70)
-    print("模型状态检查")
+    print("VEGA 实验设置")
     print("=" * 70)
     
-    print("\nBenchmark A: CLIP Family 模型")
-    print("-" * 40)
+    print("\n下游数据集 (10个):")
+    for ds in VEGA_DATASETS:
+        print(f"  - {ds}")
     
-    for model_config in CLIP_FAMILY_MODELS:
-        ptm_name = model_config[0]
-        existing = load_existing_features(ptm_name)
-        status = "✓ 已完成" if existing else "✗ 待处理"
-        print(f"  {ptm_name}: {status}")
+    print("\nBenchmark A: VLMs from CLIP Family")
+    print(f"  直接加载模型数: {len(CLIP_FAMILY_MODELS)}")
+    print(f"  缓存加载模型数: {len(LAION_2B_MODELS_LOCAL)}")
+    print("  包含: OpenAI CLIP (ResNet + ViT), LAION CLIP (ViT + ConvNeXt), CoCa")
     
-    print("\nBenchmark B: 各种预训练算法模型")
-    print("-" * 40)
+    print("\nBenchmark B: VLMs from Various Pre-training Algorithms")
+    print(f"  模型数: {len(ADDITIONAL_MODEL_PATHS)}")
+    print("  包含: AltCLIP, StreetCLIP, SigLIP, BioCLIP, ALIGN, MetaCLIP, BiomedCLIP, GroupViT, QuiltNet")
     
-    for model_name, model_config in BENCHMARK_B_MODELS.items():
-        existing = load_existing_features(model_name)
-        status = "✓ 已完成" if existing else "✗ 待处理"
-        path_exists = os.path.exists(model_config['path'])
-        path_status = "存在" if path_exists else "不存在"
-        print(f"  {model_name}: {status} (路径: {path_status})")
+    print("\nBLIP 和 BEIT3 模型 (已在 SWAB 中有数据):")
+    print(f"  模型数: {len(BLIP_BEIT3_MODELS)}")
+    for m in BLIP_BEIT3_MODELS:
+        print(f"  - {m}")
     
-    print("\nBLIP 模型")
-    print("-" * 40)
-    
-    for model_name, model_config in BLIP_MODELS.items():
-        existing = load_existing_features(model_name)
-        status = "✓ 已完成" if existing else "✗ 待处理"
-        ckpt_exists = os.path.exists(model_config['checkpoint'])
-        ckpt_status = "存在" if ckpt_exists else "不存在"
-        print(f"  {model_name}: {status} (checkpoint: {ckpt_status})")
-    
-    print("\nBEIT3 模型")
-    print("-" * 40)
-    
-    for model_name, model_config in BEIT3_MODELS.items():
-        existing = load_existing_features(model_name)
-        status = "✓ 已完成" if existing else "✗ 待处理"
-        ckpt_exists = os.path.exists(model_config['checkpoint'])
-        ckpt_status = "存在" if ckpt_exists else "不存在"
-        print(f"  {model_name}: {status} (checkpoint: {ckpt_status})")
-
-
-def count_completed_models():
-    """统计已完成的模型数量"""
-    total = 0
-    completed = 0
-    
-    # Benchmark A
-    for model_config in CLIP_FAMILY_MODELS:
-        total += 1
-        if load_existing_features(model_config[0]):
-            completed += 1
-    
-    benchmark_a = (completed, total)
-    
-    # Benchmark B
-    total = 0
-    completed = 0
-    for model_name in BENCHMARK_B_MODELS.keys():
-        total += 1
-        if load_existing_features(model_name):
-            completed += 1
-    
-    benchmark_b = (completed, total)
-    
-    # BLIP
-    total = 0
-    completed = 0
-    for model_name in BLIP_MODELS.keys():
-        total += 1
-        if load_existing_features(model_name):
-            completed += 1
-    
-    blip = (completed, total)
-    
-    # BEIT3
-    total = 0
-    completed = 0
-    for model_name in BEIT3_MODELS.keys():
-        total += 1
-        if load_existing_features(model_name):
-            completed += 1
-    
-    beit3 = (completed, total)
-    
-    print("\n" + "=" * 70)
-    print("模型完成统计")
-    print("=" * 70)
-    print(f"  Benchmark A (CLIP Family): {benchmark_a[0]}/{benchmark_a[1]}")
-    print(f"  Benchmark B (各种预训练):  {benchmark_b[0]}/{benchmark_b[1]}")
-    print(f"  BLIP 模型:                 {blip[0]}/{blip[1]}")
-    print(f"  BEIT3 模型:                {beit3[0]}/{beit3[1]}")
-    total_completed = benchmark_a[0] + benchmark_b[0] + blip[0] + beit3[0]
-    total_models = benchmark_a[1] + benchmark_b[1] + blip[1] + beit3[1]
-    print(f"  总计:                      {total_completed}/{total_models}")
+    print("\n总计模型数:")
+    total = len(CLIP_FAMILY_MODELS) + len(LAION_2B_MODELS_LOCAL) + len(ADDITIONAL_MODEL_PATHS) + len(BLIP_BEIT3_MODELS)
+    print(f"  Benchmark A: {len(CLIP_FAMILY_MODELS) + len(LAION_2B_MODELS_LOCAL)}")
+    print(f"  Benchmark B: {len(ADDITIONAL_MODEL_PATHS)}")
+    print(f"  BLIP/BEIT3: {len(BLIP_BEIT3_MODELS)}")
+    print(f"  总计: {total}")
 
 
 if __name__ == '__main__':
@@ -1075,12 +842,11 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--verify', action='store_true', help='仅验证已有特征')
-    parser.add_argument('--status', action='store_true', help='打印模型状态')
-    parser.add_argument('--count', action='store_true', help='统计完成数量')
+    parser.add_argument('--setup', action='store_true', help='打印 VEGA 实验设置')
     parser.add_argument('--swab_root', type=str, default=SWAB_ROOT, help='SWAB 根目录')
     parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR, help='输出目录')
     parser.add_argument('--benchmark', type=str, choices=['A', 'B', 'ALL'], default='ALL',
-                        help='运行哪个 benchmark')
+                        help='运行哪个 benchmark (A=CLIP Family, B=Various Pre-training, ALL=全部)')
     args = parser.parse_args()
     
     # 更新路径
@@ -1088,10 +854,8 @@ if __name__ == '__main__':
     CLASSNAMES_DIR = os.path.join(SWAB_ROOT, 'data/datasets/classnames')
     OUTPUT_DIR = args.output_dir
     
-    if args.status:
-        print_model_status()
-    elif args.count:
-        count_completed_models()
+    if args.setup:
+        print_vega_setup()
     elif args.verify:
         verify_features()
     else:

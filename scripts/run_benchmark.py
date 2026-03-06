@@ -126,21 +126,30 @@ def load_text_features(data_dir: str, model_name: str, dataset_name: str, verbos
     加载模型的文本特征（类别嵌入）
     
     数据结构: pickle 文件包含多个数据集
-    每个数据集是 {class_name: text_embedding}
+    每个数据集是 {class_name: text_embedding} 或直接是 [K, D] 数组
     
     返回:
         np.ndarray: [K, D] 文本嵌入矩阵
     """
-    # 尝试 caption_text_feat
-    feat_path = os.path.join(data_dir, 'ptm_stats/stats_on_hist_task/caption_text_feat', f'{model_name}.pkl')
+    # 尝试多个路径（按优先级）
+    search_paths = [
+        # 新路径：VEGA 论文要求的 class_text_feat
+        os.path.join(data_dir, 'ptm_stats/class_text_feat', f'{model_name}.pkl'),
+        # 旧路径：caption_text_feat
+        os.path.join(data_dir, 'ptm_stats/stats_on_hist_task/caption_text_feat', f'{model_name}.pkl'),
+        # 旧路径：syn_text_feat
+        os.path.join(data_dir, 'ptm_stats/stats_on_hist_task/syn_text_feat', f'{model_name}.pkl'),
+    ]
     
-    if not os.path.exists(feat_path):
-        # 尝试 syn_text_feat
-        feat_path = os.path.join(data_dir, 'ptm_stats/stats_on_hist_task/syn_text_feat', f'{model_name}.pkl')
+    feat_path = None
+    for path in search_paths:
+        if os.path.exists(path):
+            feat_path = path
+            break
     
-    if not os.path.exists(feat_path):
+    if feat_path is None:
         if verbose:
-            print(f"    [!] 文本特征文件不存在")
+            print(f"    [!] 无法加载文本特征")
         return None
     
     with open(feat_path, 'rb') as f:
@@ -153,7 +162,14 @@ def load_text_features(data_dir: str, model_name: str, dataset_name: str, verbos
     
     dataset_feats = text_feats[dataset_name]
     
-    # 数据集特征是 {class_name: text_embedding} 格式
+    # 情况 1: 直接是 [K, D] 数组（新格式，class_text_feat）
+    if isinstance(dataset_feats, (torch.Tensor, np.ndarray)):
+        emb = dataset_feats.cpu().numpy() if isinstance(dataset_feats, torch.Tensor) else dataset_feats
+        if verbose:
+            print(f"    文本特征 (数组格式): {emb.shape}")
+        return emb
+    
+    # 情况 2: {class_name: text_embedding} 格式（旧格式）
     if isinstance(dataset_feats, dict):
         embeddings = []
         for class_name, emb in dataset_feats.items():
@@ -165,11 +181,10 @@ def load_text_features(data_dir: str, model_name: str, dataset_name: str, verbos
                 elif len(emb.shape) == 2 and emb.shape[0] == 1:
                     embeddings.append(emb.flatten())
         if embeddings:
-            return np.array(embeddings)
-    elif isinstance(dataset_feats, (torch.Tensor, np.ndarray)):
-        emb = dataset_feats.numpy() if isinstance(dataset_feats, torch.Tensor) else dataset_feats
-        if len(emb.shape) == 2:
-            return emb
+            result = np.array(embeddings)
+            if verbose:
+                print(f"    文本特征 (字典格式): {result.shape}")
+            return result
     
     return None
 
