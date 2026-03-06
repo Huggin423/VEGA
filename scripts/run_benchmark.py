@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 VEGA vs LogME 基准测试脚本（改进版）
 对比两种方法在模型选择任务上的表现
