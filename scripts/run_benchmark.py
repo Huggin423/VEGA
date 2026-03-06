@@ -111,7 +111,7 @@ def get_cache_key(model_name, dataset_name, method):
 
 def get_cache_path(model_name, dataset_name, method):
     cache_key = get_cache_key(model_name, dataset_name, method)
-    return CACHE_DIR / "%s.pkl" % cache_key
+    return CACHE_DIR / ("%s.pkl" % cache_key)
 
 
 def save_cache(model_name, dataset_name, method, data):
