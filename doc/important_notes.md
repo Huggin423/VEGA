@@ -153,3 +153,56 @@ python scripts/extract_class_text_features.py --verify
 ### 已生成的 class_text_feat 文件
 
 截至目前，已成功生成 23 个模型的文本特征文件（见 `SWAB/ptm_stats/class_text_feat/`），还有部分模型因网络问题待处理。所有模型都优先从本地路径加载，避免 HuggingFace Hub 网络问题。
+
+---
+
+## 2026-03-06 VEGA 基础实现与进度优化
+
+### 问题背景
+
+运行 `scripts/run_benchmark.py` 时发现两个问题：
+1. `compute_score` 使用的是 `VEGAPlus`（带置信度加权的扩展版本），而不是论文中的基础 VEGA
+2. 运行时没有进度显示，导致以为程序卡住了
+
+### 已完成工作
+
+1. **VEGA 代码重构** (`methods/baseline/vega.py`)：
+   - `VEGAScorer`: 基础 VEGA 实现，完全符合论文算法
+     - 节点相似度: `s_n = (1/K) * Σ_k sim_k * N_k`
+     - 边相似度: `s_e = (PearsonCorr + 1) / 2`
+     - 最终分数: `s = s_n + s_e`
+   - `VEGAPlus`: 扩展版本（保留但不再默认使用）
+   - 保留 `VEGA = VEGAScorer` 作为向后兼容别名
+
+2. **基准测试脚本优化** (`scripts/run_benchmark.py`)：
+   - 使用基础 `VEGAScorer` 替代 `VEGAPlus`
+   - 添加 `ProgressBar` 类实现进度条显示
+   - 添加详细的时间预估和状态输出
+   - 每个数据集和模型处理时显示进度
+
+3. **代码注释改进**：
+   - 在 `compute_vega_score_detailed()` 中明确标注使用的是基础 VEGA
+   - 添加详细的算法说明注释
+
+### VEGA 算法核心要点
+
+根据论文 "Learning to Rank Pre-trained Vision-Language Models for Downstream Tasks"：
+
+1. **文本图构建**：
+   - 节点：类别名称的文本嵌入 `[K, D]`
+   - 边：余弦相似度矩阵 `[K, K]`
+
+2. **视觉图构建**：
+   - 节点：每个类别的高斯分布 `N(μ_k, Σ_k)`
+   - 边：Bhattacharyya 距离
+
+3. **分数计算**：
+   - 节点相似度：衡量视觉特征与文本嵌入的对齐程度
+   - 边相似度：衡量视觉图与文本图结构的一致性
+   - 最终分数：`VEGA = s_n + s_e`，范围 `[0, 2]`
+
+### 下一步计划
+
+1. 在服务器上运行更新后的基准测试脚本
+2. 验证 VEGA 和 LogME 的排序相关性
+3. 分析不同数据集上的表现差异

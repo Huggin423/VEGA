@@ -4,6 +4,9 @@ VEGA vs LogME 基准测试脚本（改进版）
 对比两种方法在模型选择任务上的表现
 
 运行环境：实验室服务器 /root/mxy/VEGA（符号链接到 SWAB 数据）
+
+更新日志:
+- 2026-03-06: 使用基础 VEGA（符合论文），添加进度条显示
 """
 
 import os
@@ -15,14 +18,84 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from scipy import stats
 import warnings
+import time
+from datetime import datetime
 warnings.filterwarnings('ignore')
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from methods.baseline.vega import VEGA
+from methods.baseline.vega import VEGAScorer  # 使用基础 VEGA（符合论文）
 from methods.baseline.logme import LogME
+
+
+# ============================================================================
+# 进度显示工具
+# ============================================================================
+
+class ProgressBar:
+    """简单的进度条显示"""
+    
+    def __init__(self, total: int, desc: str = "Progress", width: int = 50):
+        self.total = total
+        self.desc = desc
+        self.width = width
+        self.current = 0
+        self.start_time = time.time()
+        self.last_update = 0
+    
+    def update(self, n: int = 1, info: str = ""):
+        self.current += n
+        elapsed = time.time() - self.start_time
+        
+        # 计算进度
+        progress = self.current / self.total if self.total > 0 else 0
+        filled = int(self.width * progress)
+        bar = '█' * filled + '░' * (self.width - filled)
+        
+        # 计算预计剩余时间
+        if self.current > 0:
+            eta = elapsed / self.current * (self.total - self.current)
+            eta_str = f"ETA: {eta:.0f}s"
+        else:
+            eta_str = "ETA: --"
+        
+        # 构建进度条字符串
+        status = f"{self.desc}: |{bar}| {self.current}/{self.total} [{progress*100:.1f}%] {eta_str}"
+        if info:
+            status += f" | {info}"
+        
+        # 打印进度条（覆盖上一行）
+        print(f"\r{status}", end='', flush=True)
+        
+        # 完成时换行
+        if self.current >= self.total:
+            print(f" | 完成: {elapsed:.1f}s")
+    
+    def close(self):
+        if self.current < self.total:
+            print()  # 未完成时换行
+
+
+def print_header(title: str, width: int = 70):
+    """打印标题头"""
+    print("\n" + "=" * width)
+    print(f" {title}")
+    print("=" * width)
+
+
+def print_subheader(title: str, width: int = 70):
+    """打印子标题"""
+    print("\n" + "-" * width)
+    print(f" {title}")
+    print("-" * width)
+
+
+def print_status(msg: str, level: str = "INFO"):
+    """打印状态信息"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] [{level}] {msg}")
 
 
 # ============================================================================
@@ -225,21 +298,29 @@ def compute_vega_score_detailed(
     img_features: np.ndarray, 
     text_features: np.ndarray, 
     logits: np.ndarray,
-    model_name: str = ""
+    model_name: str = "",
+    silent: bool = False
 ) -> Tuple[float, Dict]:
     """
     计算 VEGA 分数（带详细输出）
     
+    使用基础 VEGA（VEGAScorer），完全符合论文实现：
+    - 节点相似度: s_n = (1/K) * sum_k sim_k * N_k
+    - 边相似度: s_e = (PearsonCorr + 1) / 2
+    - 最终分数: s = s_n + s_e
+    
     返回:
         (score, details)
     """
-    print(f"\n    计算 VEGA 分数:")
-    print(f"      - 图像特征: {img_features.shape}")
-    print(f"      - 文本特征: {text_features.shape}")
-    print(f"      - Logits: {logits.shape}")
+    if not silent:
+        print(f"\n    计算 VEGA 分数 (基础版，符合论文):")
+        print(f"      - 图像特征: {img_features.shape}")
+        print(f"      - 文本特征: {text_features.shape}")
+        print(f"      - Logits: {logits.shape}")
     
     try:
-        vega = VEGA(temperature=0.05)
+        # 使用基础 VEGAScorer（完全符合论文）
+        vega = VEGAScorer(temperature=0.05)
         result = vega.compute_score(
             features=img_features,
             text_embeddings=text_features,
@@ -247,17 +328,19 @@ def compute_vega_score_detailed(
             return_details=True
         )
         
-        print(f"      - 节点相似度 (s_n): {result['node_similarity']:.4f}")
-        print(f"      - 边相似度 (s_e): {result['edge_similarity']:.4f}")
-        print(f"      - 有效类别数: {result['valid_classes']}")
-        print(f"      - VEGA 总分: {result['score']:.4f}")
+        if not silent:
+            print(f"      - 节点相似度 (s_n): {result['node_similarity']:.4f}")
+            print(f"      - 边相似度 (s_e): {result['edge_similarity']:.4f}")
+            print(f"      - 有效类别数: {result['valid_classes']}")
+            print(f"      - VEGA 总分: {result['score']:.4f}")
         
         return result['score'], result
         
     except Exception as e:
-        print(f"      [!] VEGA 计算错误: {e}")
-        import traceback
-        traceback.print_exc()
+        if not silent:
+            print(f"      [!] VEGA 计算错误: {e}")
+            import traceback
+            traceback.print_exc()
         return None, {'error': str(e)}
 
 
@@ -382,13 +465,19 @@ def compute_metrics(predicted_scores: Dict[str, float],
 
 def run_single_dataset_benchmark(data_dir: str, dataset_name: str, 
                                   model_list: List[str],
-                                  verbose: bool = True) -> Dict:
+                                  verbose: bool = True,
+                                  progress_bar: ProgressBar = None) -> Dict:
     """
     在单个数据集上运行基准测试
+    
+    Args:
+        data_dir: 数据目录
+        dataset_name: 数据集名称
+        model_list: 模型列表
+        verbose: 是否输出详细信息
+        progress_bar: 进度条对象（可选）
     """
-    print(f"\n{'='*70}")
-    print(f"数据集: {dataset_name}")
-    print(f"{'='*70}")
+    print_subheader(f"数据集: {dataset_name}")
     
     vega_scores = {}
     logme_scores = {}
@@ -397,8 +486,11 @@ def run_single_dataset_benchmark(data_dir: str, dataset_name: str,
     # 存储详细数据用于调试
     debug_data = {}
     
-    for model_name in model_list:
-        print(f"\n  处理模型: {model_name}")
+    # 创建模型级别的进度条
+    model_pbar = ProgressBar(len(model_list), desc=f"  {dataset_name}")
+    
+    for idx, model_name in enumerate(model_list):
+        model_pbar.update(1, f"处理 {model_name[:20]}...")
         
         # 1. 加载 logits
         logits_data = load_logits_data(data_dir, model_name, dataset_name)
