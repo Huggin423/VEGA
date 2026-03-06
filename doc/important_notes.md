@@ -205,4 +205,4 @@ python scripts/extract_class_text_features.py --verify
 
 1. 在服务器上运行更新后的基准测试脚本
 2. 验证 VEGA 和 LogME 的排序相关性
-3. 分析不同数据集上的表现差异
+3. 分析不同数据集上的表现

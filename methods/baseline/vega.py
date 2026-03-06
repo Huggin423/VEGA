@@ -14,9 +14,20 @@ import torch.nn.functional as F
 from typing import Union, Optional, Dict, List, Tuple
 from scipy.stats import pearsonr
 import logging
+import sys
 
-logging.basicConfig(level=logging.INFO)
+# 配置日志输出到控制台
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
+
+
+def progress_print(msg: str, level: str = "INFO"):
+    """打印进度信息，确保立即输出"""
+    print(f"[VEGA] {msg}", flush=True)
 
 
 class VEGAScorer:
