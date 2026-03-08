@@ -696,16 +696,16 @@ def main():
     
     # 10 datasets (from 22 available, excluding imagenet1k and clevr_closest_object_distance)
     test_datasets = [
-        'cars',
         'cifar100',
-        'flowers',
-        'pets',
+        'country211',
         'dtd',
-        'eurosat',
-        'food101',  # Note: may not have all models
+        'flowers',
         'gtsrb',
         'mnist',
+        'pets',  # Note: may not have all models
+        'svhn',
         'sun397',
+        'fer2013',
     ]
     
     print("=" * 70)
