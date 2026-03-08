@@ -222,8 +222,6 @@ def load_text_features(data_dir, model_name, dataset_name, verbose=False):
     """Load model text features (class embeddings)"""
     search_paths = [
         os.path.join(data_dir, 'ptm_stats/class_text_feat', '%s.pkl' % model_name),
-        os.path.join(data_dir, 'ptm_stats/stats_on_hist_task/caption_text_feat', '%s.pkl' % model_name),
-        os.path.join(data_dir, 'ptm_stats/stats_on_hist_task/syn_text_feat', '%s.pkl' % model_name),
     ]
     feat_path = None
     for path in search_paths:
@@ -311,8 +309,8 @@ def compute_vega_score_with_progress(img_features, text_features, logits, model_
             temperature=0.05,
             min_samples_per_class=1,
             use_pca=True,
-            pca_dim=256,
-            pca_whiten=True
+            pca_dim=512,
+            pca_whiten=False
         )
         
         # Compute score with detailed results

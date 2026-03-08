@@ -79,8 +79,10 @@ class VEGAScorer:
         temperature: float = 0.05, 
         min_samples_per_class: int = 1,
         use_pca: bool = True,
-        pca_dim: int = 256,
-        pca_whiten: bool = True
+        pca_dim: int = 512,
+        pca_whiten: bool = False,
+        node_weight: float = 0.5,
+        edge_weight: float = 0.5
     ):
         """
         Initialize VEGA scorer.
@@ -90,13 +92,17 @@ class VEGAScorer:
             min_samples_per_class: Minimum samples required per class for valid computation
             use_pca: Whether to use PCA dimensionality reduction
             pca_dim: Target dimension after PCA (ignored if use_pca=False)
-            pca_whiten: Whether to whiten features (makes diagonal covariance assumption valid)
+            pca_whiten: Whether to whiten features (disabled by default to preserve semantic structure)
+            node_weight: Weight for node similarity in final score (default: 0.5)
+            edge_weight: Weight for edge similarity in final score (default: 0.5)
         """
         self.temperature = temperature
         self.min_samples_per_class = min_samples_per_class
         self.use_pca = use_pca
         self.pca_dim = pca_dim
         self.pca_whiten = pca_whiten
+        self.node_weight = node_weight
+        self.edge_weight = edge_weight
         
         # PCA components (will be fitted during compute_score)
         self.pca_mean = None
