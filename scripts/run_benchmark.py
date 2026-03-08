@@ -358,21 +358,46 @@ def compute_vega_score_with_progress(img_features, text_features, logits, model_
         return None, {'error': str(e)}
 
 
-def compute_logme_score(features, pseudo_labels):
-    """Compute LogME score using LogME_official library"""
+def compute_logme_score(features, labels, use_true_labels=True):
+    """
+    Compute LogME score using LogME_official library
+    
+    Args:
+        features: Image features [N, D]
+        labels: Labels for each sample [N]
+        use_true_labels: If True, use provided labels (ground truth);
+                        If False, treat labels as pseudo-labels from model predictions
+    
+    Note:
+        LogME is originally designed for supervised transferability estimation.
+        When use_true_labels=True, it provides the THEORETICAL UPPER BOUND
+        for VLM selection, since it uses ground truth labels.
+        
+        When use_true_labels=False (using pseudo-labels from VLM predictions),
+        the results are noisy because:
+        1. VLM predictions may be incorrect (e.g., 46% error rate on cars with acc=0.54)
+        2. LogME evaluates feature quality with wrong labels, leading to unreliable results
+    """
+    label_type = "TRUE LABELS (Oracle)" if use_true_labels else "PSEUDO LABELS (from VLM)"
     print_detail("Computing LogME score:", indent=4)
     print_detail("- Features: %s" % str(features.shape), indent=6)
-    print_detail("- Pseudo labels: %s, unique classes: %d" % (str(pseudo_labels.shape), len(np.unique(pseudo_labels))), indent=6)
+    print_detail("- Labels: %s (%s), unique classes: %d" % (
+        str(labels.shape), label_type, len(np.unique(labels))), indent=6)
     
     start_time = time.time()
     
     try:
         from LogME_official.LogME import LogME as LogMEOfficial
         logme = LogMEOfficial(regression=False)
-        score = logme.fit(features.astype(np.float64), pseudo_labels.astype(np.int64))
+        score = logme.fit(features.astype(np.float64), labels.astype(np.int64))
         elapsed = time.time() - start_time
         print_detail("LogME score: %.4f (time: %.2fs)" % (score, elapsed), indent=4)
-        return score, {'score': score, 'computation_time': elapsed}
+        return score, {
+            'score': score, 
+            'computation_time': elapsed,
+            'use_true_labels': use_true_labels,
+            'label_type': label_type
+        }
     except Exception as e:
         print_detail("[!] LogME computation error: %s" % e, indent=4)
         import traceback
@@ -522,16 +547,36 @@ def run_single_dataset_benchmark(data_dir, dataset_name, model_list, verbose=Tru
         if vega_score is not None:
             vega_scores[model_name] = vega_score
         
-        pseudo_labels = np.argmax(logits, axis=1)
-        if cached_logme is not None:
-            logme_score = cached_logme.get('score')
-            logme_details = cached_logme
+        # ========== LogME with TRUE LABELS (Oracle, Theoretical Upper Bound) ==========
+        # This is the correct way to use LogME - it gives the theoretical upper bound
+        # because it uses ground truth labels to evaluate feature quality
+        true_labels = logits_data.get('labels')
+        if true_labels is not None:
+            print("\n  [LogME-Oracle] Computing with TRUE LABELS...",)
+            logme_oracle_score, logme_oracle_details = compute_logme_score(
+                img_feat, true_labels, use_true_labels=True)
+            if logme_oracle_score is not None:
+                print_detail("LogME-Oracle (TRUE LABELS): %.4f" % logme_oracle_score, indent=6)
         else:
-            logme_score, logme_details = compute_logme_score(img_feat, pseudo_labels)
-            if logme_score is not None:
-                save_cache(model_name, dataset_name, 'logme', logme_details)
-        if logme_score is not None:
-            logme_scores[model_name] = logme_score
+            logme_oracle_score = None
+            print_detail("[!] No true labels available for LogME-Oracle", indent=4)
+        
+        # ========== LogME with PSEUDO LABELS (Wrong Usage, For Comparison Only) ==========
+        # This is the WRONG way to use LogME - using VLM predictions as labels
+        # Results are noisy because VLM predictions can be wrong
+        pseudo_labels = np.argmax(logits, axis=1)
+        print("\n  [LogME-Pseudo] Computing with PSEUDO LABELS (from VLM)...")
+        logme_pseudo_score, logme_pseudo_details = compute_logme_score(
+            img_feat, pseudo_labels, use_true_labels=False)
+        if logme_pseudo_score is not None:
+            print_detail("LogME-Pseudo (PSEUDO LABELS): %.4f" % logme_pseudo_score, indent=6)
+        
+        # Store both scores for comparison
+        # For the main comparison, use LogME-Oracle (true labels) as the theoretical upper bound
+        if logme_oracle_score is not None:
+            logme_scores[model_name] = logme_oracle_score  # Use Oracle as main LogME result
+        elif logme_pseudo_score is not None:
+            logme_scores[model_name] = logme_pseudo_score  # Fallback to pseudo if no true labels
     
     if failed_models:
         print("\n  Failed models summary (%d/%d):" % (len(failed_models), len(model_list)))

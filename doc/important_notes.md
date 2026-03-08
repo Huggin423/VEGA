@@ -241,6 +241,118 @@ cat VEGA/cache/benchmark_results.json
 
 ---
 
+## 2026-03-08 LogME 实现问题分析与修复（重要发现）
+
+### 问题背景
+
+在分析 `doc/run_benchmark_result.json` 的实验结果时，发现了两个关键问题：
+
+1. **LogME 结果不如 VEGA**：理论上 LogME 应该是 VEGA 的上限，因为 LogME 使用了真实标签
+2. **复现结果与 VEGA 论文差距较大**：论文中 VEGA 的 Kendall τ 约为 0.62，但我们的结果在很多数据集上为负值
+
+### 问题 1：LogME 使用了伪标签而非真实标签（根本原因）
+
+#### 错误实现（之前的代码）
+
+```python
+# scripts/run_benchmark.py 第 318 行
+pseudo_labels = np.argmax(logits, axis=1)  # 使用 logits 生成的伪标签
+logme_score, logme_details = compute_logme_score(img_feat, pseudo_labels)
+```
+
+#### 问题分析
+
+1. **LogME 原始设计**是有监督的迁移性评估方法，需要使用**真实标签**计算
+2. **错误实现**使用了 VLM 预测的**伪标签**，这引入了大量噪声
+3. 当 VLM 在某个数据集上表现较差时（如 cars 数据集 acc≈0.54），伪标签错误率高达 46%
+4. LogME 用错误标签评估特征质量，结果自然不可靠
+
+#### 为什么之前的 LogME 表现不如 VEGA
+
+- VEGA 本身就是为**无监督场景**设计的
+- VEGA 的节点相似度计算对伪标签噪声更鲁棒（使用 softmax 加权平均）
+- VEGA 的边相似度（Pearson 相关）衡量的是结构关系，对标签错误不那么敏感
+- **LogME 使用伪标签是完全错误的使用方式**
+
+#### 修复方案
+
+```python
+# 正确实现：使用真实标签
+true_labels = logits_data.get('labels')  # 从 logits 文件中获取真实标签
+logme_score = logme.fit(features, true_labels)
+```
+
+### 问题 2：VEGA 结果与论文差距的原因
+
+#### 可能原因
+
+1. **文本特征来源不同**：
+   - VEGA 论文使用**类别名称**的文本嵌入
+   - 我们可能使用了 SWAB 的 **caption 文本特征**或**同义词文本特征**
+   - 需要确保使用 `ptm_stats/class_text_feat/` 下的类别文本特征
+
+2. **特征维度不匹配**：
+   - 某些模型的图像特征和文本特征维度可能不一致
+   - 需要检查并处理维度不一致的情况
+
+3. **PCA 白化参数**：
+   - 我们添加了 PCA 白化优化（`pca_dim=256`）
+   - 需要验证这个优化是否影响了排序相关性
+
+4. **数据集选择**：
+   - VEGA 论文使用了 10 个数据集，我们使用了 9 个有效数据集
+   - 某些数据集的特性可能不适合 VEGA 的假设
+
+#### VEGA 论文结果参考（Table I）
+
+| 数据集 | VEGA τ | VEGA R5 |
+|--------|--------|---------|
+| Flowers | 0.72 | 0.73 |
+| GTSRB | 0.73 | 0.64 |
+| OxfordPets | 0.61 | 0.55 |
+| DTD | 0.56 | 0.46 |
+| Country211 | 0.62 | 0.58 |
+| SUN397 | 0.61 | 0.55 |
+| MNIST | 0.52 | 0.42 |
+| Fer2013 | 0.56 | 0.42 |
+| CIFAR-100 | 0.60 | 0.52 |
+| SVHN | 0.53 | 0.42 |
+| **Average** | **0.62** | **0.64** |
+
+### 修复内容
+
+已修改 `scripts/run_benchmark.py`：
+
+1. **添加 LogME-Oracle（真实标签）**：
+   - 从 `logits_data['labels']` 获取真实标签
+   - 这是 LogME 的正确使用方式，代表理论上限
+
+2. **保留 LogME-Pseudo（伪标签）**：
+   - 用于对比分析，展示错误使用方式的结果
+
+3. **增加详细日志输出**：
+   - 区分两种 LogME 的计算结果
+   - 记录标签类型（真实/伪标签）
+
+### 预期结果
+
+修复后，**LogME-Oracle（真实标签）** 应该满足：
+- Kendall τ > VEGA 的 Kendall τ（作为理论上限）
+- 更好的 Top-5 Recall
+
+如果 LogME-Oracle 仍然不如 VEGA，则说明：
+1. 数据预处理有问题
+2. 特征提取有问题
+3. 或者 VEGA 的实现本身有优化空间
+
+### 下一步
+
+1. 在服务器上重新运行基准测试
+2. 对比 LogME-Oracle 和 LogME-Pseudo 的结果
+3. 验证 VEGA 复现结果是否接近论文报告的 τ ≈ 0.62
+
+---
+
 ## 2026-03-06 VEGAScorer 性能优化
 
 ### 问题背景
