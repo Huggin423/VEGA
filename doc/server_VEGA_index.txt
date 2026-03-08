@@ -1,0 +1,520 @@
+.
+|-- LogME_official
+|   |-- LEEP.py
+|   |-- LICENSE.txt
+|   |-- LogME.py
+|   |-- NCE.py
+|   |-- README.md
+|   |-- __pycache__
+|   |   `-- LogME.cpython-38.pyc
+|   |-- b_tuning.py
+|   |-- imgs
+|   |   |-- image-20210222204141915.png
+|   |   |-- image-20210222204350389.png
+|   |   `-- image-20210222204712553.png
+|   |-- ranking.py
+|   `-- utils
+|       |-- tools.py
+|       `-- transforms.py
+|-- README.md
+|-- cache
+|   |-- 000d879b1280f563d5c56918b76aa765.pkl
+|   |-- 00a90f0a152a82d7acdf97b8579c9e10.pkl
+|   |-- 0286e604fb6631c0a9bba4df2009673b.pkl
+|   |-- 03256ef18660f0b94c5b59bdbf5cbc4d.pkl
+|   |-- 03607f0558d480346aba5f1ca8a31bec.pkl
+|   |-- 0401c4f5625d6d30ba7acdc17042140c.pkl
+|   |-- 04db371720108e5b5fd88dc1dddabcaa.pkl
+|   |-- 060d4f302c3263e211f51ba6cb1873e3.pkl
+|   |-- 089ec2eb1a166f092bf698565b4eae26.pkl
+|   |-- 09118d6c1ac841686e90b4afd4170133.pkl
+|   |-- 09f00eee3cc3eeec4896ee1ba87612d6.pkl
+|   |-- 0a8245b0300a5390700d11ae617f0684.pkl
+|   |-- 0ab60b1936dae6ea223ddbabee14e6f8.pkl
+|   |-- 0b9080f4490d32bdb36943eb99e69baf.pkl
+|   |-- 0bc6b81cf0c5e0310adbda12fb841a20.pkl
+|   |-- 0d5da9f38608313a8b39bb5b63d91fd2.pkl
+|   |-- 0ded044e1efd00acbfe29ca6eaedae18.pkl
+|   |-- 0df4d0408c9a392850a225d384407fd6.pkl
+|   |-- 0f33344f6a0592f7a16d94aeba5be878.pkl
+|   |-- 0f438c4a949e4caa225ff105a97ae3d5.pkl
+|   |-- 0f48b869d3187902c6bea4ce701d57d6.pkl
+|   |-- 117747d8387b33fccb9db73c52608e4c.pkl
+|   |-- 11bf13ef675979b49874594d6bdd3e52.pkl
+|   |-- 12337758c307ed5cccffb32ed24e3783.pkl
+|   |-- 12815a5aa3ee12303229de6d3c072045.pkl
+|   |-- 1290ce41f5ab44b451f5e6b47303e186.pkl
+|   |-- 12ce52d9b2d1cf930f979a21cc0c5640.pkl
+|   |-- 12e00404a7673f554c64adaf328c6dc7.pkl
+|   |-- 130b13ea6fe490137aa187f07ff26036.pkl
+|   |-- 14278649fa8b4e9362f9512371599b16.pkl
+|   |-- 1520987766208d60cb841bf71aacb115.pkl
+|   |-- 15369c7efa2e68fff14516c73d59d66f.pkl
+|   |-- 15384072abdbf88030b412e756687e85.pkl
+|   |-- 1681597320eb35dfc8bae1adc2ce1655.pkl
+|   |-- 16c439b60b2e1414f397411e090e6c96.pkl
+|   |-- 192a721856d670b0e0b46d918b5aa027.pkl
+|   |-- 195fde16fbd3efb27966b9cf1c1be2af.pkl
+|   |-- 19e09410da3077432c6355baa5f1a99c.pkl
+|   |-- 1b4ca778b956a52b4e3fcbf140c1571f.pkl
+|   |-- 1b945398c4b5662ab2d6c2b4ae999fd0.pkl
+|   |-- 1c1050c3007cc68cd9f4e049352cdcf5.pkl
+|   |-- 1c562e5a7617cdf3db6ebc61cac1d9d0.pkl
+|   |-- 1d79eaddb18b772f1a4f8c93980f0e62.pkl
+|   |-- 1d86046662c983437a89778003f3739d.pkl
+|   |-- 1e56d90834e54b461718a15fb2d87e6d.pkl
+|   |-- 2012023f0f0e26f196c0274e100c1895.pkl
+|   |-- 21434c503c1410a7a3a62d683a0e70ed.pkl
+|   |-- 2146d7c458ec15abc960becb8befebb1.pkl
+|   |-- 220eb8590e79d6c5d4b67b48eb044002.pkl
+|   |-- 230e306f36674f9ddc3b83a1793ed8c9.pkl
+|   |-- 248fb3134620a697d6d8cee53fc9511a.pkl
+|   |-- 25ba299adea7bf836a1270444ee7cdd8.pkl
+|   |-- 26488029bac7daad4a8aa77802a179d0.pkl
+|   |-- 2915dd502abf68ba1b598ec6698dbe64.pkl
+|   |-- 29cf2715f0196cffec0dc874b25c115b.pkl
+|   |-- 29f01b17de1eef15d00dfd50f1ddc79e.pkl
+|   |-- 2a8834de4d28926ed69d4e4899013503.pkl
+|   |-- 2b5730b35b590ac78838f05efe4f7bac.pkl
+|   |-- 2d26058412c9214c6d181fec16e2d9cb.pkl
+|   |-- 2ef35cec589998c83c4255bb2d813821.pkl
+|   |-- 2f041b998aa391d0bc15151a32f82688.pkl
+|   |-- 2f4ccf5b81198b66be0b1190c978b002.pkl
+|   |-- 313446be41480807456d368c1005e664.pkl
+|   |-- 31b2b7fb1cf36bb04e42c4ea0d3fc12b.pkl
+|   |-- 3247df10430d96bed3d0f4bdc4d7a79c.pkl
+|   |-- 32e46f40123c0a3a2847907d9647094d.pkl
+|   |-- 33258fcbe7066cb258fb7c66a138b25c.pkl
+|   |-- 33c29b6847565030d85b7cedbf40a98e.pkl
+|   |-- 36d503f355460d6ac097ac12086704e3.pkl
+|   |-- 375c98c065fd7a20937429b5c9eb38c6.pkl
+|   |-- 37861bab39c11cda23914402aa936e92.pkl
+|   |-- 37a5e832f2fcf5b434819ec157bee311.pkl
+|   |-- 3856d4764c29bc2dca4cca1d9e50c2e9.pkl
+|   |-- 386ffd8dde519c785f06a427ae12da3b.pkl
+|   |-- 38df189044f803f1f6b8547e170a61be.pkl
+|   |-- 39417fad22d93c2e34a35de0bf2a3b60.pkl
+|   |-- 39c984f1318fbbd9cf72f8cc2d0f556b.pkl
+|   |-- 3a696f9e8e7863938dda1d11bd621991.pkl
+|   |-- 3bf2ee18c17cf2f24d96849f7f097a37.pkl
+|   |-- 3c442e7b48b2a0483ee49b90869c099a.pkl
+|   |-- 3ddd718a20f28cb0d9615beab9f56a6b.pkl
+|   |-- 3f51f18c51e3f9d39629cd46ea667143.pkl
+|   |-- 409b06b0f9a85b88ba33b9f1b4af8b4e.pkl
+|   |-- 41c9418fa6bacd03a9a19109506b539a.pkl
+|   |-- 42b332fa1ac645a696b232c7e4bfe2cf.pkl
+|   |-- 42d0cff5df2d051a1d0d4737a754f2ed.pkl
+|   |-- 462c6018922c8635ef9ec5e97dcfd0f8.pkl
+|   |-- 48f7659e213dd7b82c429639a4d3ea46.pkl
+|   |-- 4906fd0bcce1317350db757f265da4ca.pkl
+|   |-- 4a76356b1c435edd866b9f00745f2b6d.pkl
+|   |-- 4a7cb0ed5b99b5bd411dbd23339d36e0.pkl
+|   |-- 4b8aaa1fdc77da2fa6761445d9a6f2b3.pkl
+|   |-- 4b9542cb555c3d11d0169522452ed833.pkl
+|   |-- 4baf10df6ac998ece0249ae419660e84.pkl
+|   |-- 4cb8d1903ea590a9e24c10065b6a2759.pkl
+|   |-- 4d6d915f501a22c3c1b995e8c6a09b6c.pkl
+|   |-- 4d860ef872ccbeb58e70d95677f77f64.pkl
+|   |-- 4e83ea18134af9f7e665239e1de97d62.pkl
+|   |-- 4ec64a30fb4ae2203121022da6479110.pkl
+|   |-- 4ee06ce32b24fd06f2c353f179e230c3.pkl
+|   |-- 4fdd69040f462362ffad0a48bb02d901.pkl
+|   |-- 509bd74c6f177a15cf4b5d9c48e51629.pkl
+|   |-- 50d85e1dbe009af5dcd72a6d684e3f33.pkl
+|   |-- 51c09a0c56102049fd328dcb27264382.pkl
+|   |-- 52f1872c637fc0c0c09dc2e1cb733508.pkl
+|   |-- 543890c373f241ee0c6d10398e8caa1d.pkl
+|   |-- 549081fb07e8bbe40c133b8d3a9dbf6b.pkl
+|   |-- 55241bc90fabf041816d2d273e0a60cd.pkl
+|   |-- 552efa37da479f4d6a4d4e86494ac30d.pkl
+|   |-- 564c1f02dbe02e1ea060a5a61c69c64c.pkl
+|   |-- 56fc5138bfcd0a1f514bcb98dbf2f44e.pkl
+|   |-- 574c938110e0048bbd20a59f8e935ae5.pkl
+|   |-- 585f6597587dbd4c2fa4a77793d1aed8.pkl
+|   |-- 59e9f5e6e110469d50bcbbf4c0c49789.pkl
+|   |-- 5a1a4acbeaec7cbdb30216921712517a.pkl
+|   |-- 5a368489da69f8073da33fcbb0a63e63.pkl
+|   |-- 5adc39145745bf7ce1f90b4c1445ae0c.pkl
+|   |-- 5b880046d9ea769b82e1472f57110797.pkl
+|   |-- 5bda83575e7e6713b60865ea152a5184.pkl
+|   |-- 5db670833ae89949de9c569f59980a1f.pkl
+|   |-- 5de6e2892399c6575e7357524880001a.pkl
+|   |-- 600e7fa5b9e7819881e987b2fad839a5.pkl
+|   |-- 6073ffc9fcae4d99ceeb0b1cbeafaf20.pkl
+|   |-- 60d7672913b4da65eb32885d625c7974.pkl
+|   |-- 60f0e1adfb12ed08d7fe0fd12d6a045e.pkl
+|   |-- 61ae37f1a3427797a04cfdb61314c014.pkl
+|   |-- 62d760bd4e2b0aacf3a28ad15a73d648.pkl
+|   |-- 64508c3d19ad956904556676dc8a3ea9.pkl
+|   |-- 649a8e7b62e4905fb9e8f762337ce407.pkl
+|   |-- 6532b51f1a7691f1218678ea6c745750.pkl
+|   |-- 6593dc7b8bf0926b51c5c832f3b52940.pkl
+|   |-- 65a9284efa601c2113d2a3434b7c29a7.pkl
+|   |-- 6664b659a11e91a7fcac8fb0475e110c.pkl
+|   |-- 673673b3648df057f85259e046e3d9ef.pkl
+|   |-- 685aebf4b1c250ffee95b52863d052c1.pkl
+|   |-- 6b4dbadb971faeefe6460112066d15fd.pkl
+|   |-- 6c70f6aa8a97d7343204af0b89a98b01.pkl
+|   |-- 6c9943a8988520c3c2c213127e14ea08.pkl
+|   |-- 6fc6757d7311fde0a52c4197981359a5.pkl
+|   |-- 731a792c427282274a04681721eccb06.pkl
+|   |-- 7330d57ac23e8a0b198861a0a3084eba.pkl
+|   |-- 73effeae38afc62c2dac9b734f7f625c.pkl
+|   |-- 753432ed0ccd8577f77474019b2602d0.pkl
+|   |-- 768c1b68ff4e0b2d1cbd0e907bfe74b6.pkl
+|   |-- 775900b5602b723a2be64914193e802a.pkl
+|   |-- 7775a7ca486f0ed445ca76fa48a0f40b.pkl
+|   |-- 797ec19852252ae592cddf8dfaf7b6ef.pkl
+|   |-- 79ab0a31c052f9a394dae29b18c1f00d.pkl
+|   |-- 7a1e50853dadaededc65d4bba8833948.pkl
+|   |-- 7ae57b80013e41b71284c35d3f5bc033.pkl
+|   |-- 7b310558aff72129a422d0aaa545e219.pkl
+|   |-- 7b6120224d1494b42b51acc98d1cb06e.pkl
+|   |-- 7c7dd3164a6e0d20dfd1468233bd48c1.pkl
+|   |-- 7cd56a5f4d787916e81f3948f9ec27a1.pkl
+|   |-- 7f557e68fa77530a6aabc4372653284c.pkl
+|   |-- 7f55d4b411b37088ed5835e4e4fcae08.pkl
+|   |-- 7feb043e9dfee8bb201d2c1d561ddc0d.pkl
+|   |-- 802194e163ec058157f214d691546c13.pkl
+|   |-- 803236dd57a2941df7755e68e4bc037e.pkl
+|   |-- 807e83ffcad07c83b0a9508303f8398d.pkl
+|   |-- 818705fc235aac03638001a3e6cb8d6a.pkl
+|   |-- 81b75f93569ed2efff95498b1bc769d9.pkl
+|   |-- 82201baecddce81923100b985d44f58f.pkl
+|   |-- 83c43b344160b39a7098187571c419b4.pkl
+|   |-- 8438a26231393f6d7ef2583a313c7804.pkl
+|   |-- 8455820ca1bbbebc2ac4c8553531c8ee.pkl
+|   |-- 87462c7021c0dc83e5e27240dadb867c.pkl
+|   |-- 8836e2d9e8c853e0e252b3cd94c38abe.pkl
+|   |-- 895a58c200307df062ee2acc6afc427c.pkl
+|   |-- 89d04255729a0ef8e7913b059f7b5ad8.pkl
+|   |-- 8a40b67a37309ee0d64b2b0f25ec23a8.pkl
+|   |-- 8a6ba2ccab5e6e6c3167e21c17bf20db.pkl
+|   |-- 8b5d192e2d1c3f0c0531ad52bedd27ae.pkl
+|   |-- 8b76d13258960a2a84feca17bc5a171d.pkl
+|   |-- 8bc518d5af26e0db01a91a3fd744f361.pkl
+|   |-- 8d0bfe6808545236f1256fe28306008b.pkl
+|   |-- 8d6d3379448a7fef503b826ee29c80a4.pkl
+|   |-- 8e7a4e03d9672749d9cbfc737ae9b0dc.pkl
+|   |-- 8ed1e809ca14f9e2cb4355e77f89071d.pkl
+|   |-- 90205f5297b38ce4710a2aa01ed39575.pkl
+|   |-- 90f79b7b75a22fd7ea765ad464621e86.pkl
+|   |-- 91366a7dac6cebe18261837540831416.pkl
+|   |-- 9206d4d745dccbcfe08e7caa0c4b22a7.pkl
+|   |-- 92a9993057cef2420ecb28c344e52175.pkl
+|   |-- 93d575c0805d789b23a6ab54d3ef8dd9.pkl
+|   |-- 954131ad7765730d0a26cf81729c8520.pkl
+|   |-- 956e909f4b2457022aa6876315f80636.pkl
+|   |-- 9594748677b4a8b3053c0d2d4ca5739b.pkl
+|   |-- 971ffb4c05c2d8287053470bd40b8c05.pkl
+|   |-- 990ca953e84d147c3e2435316f748778.pkl
+|   |-- 9ab47b66966c8bd0d471ccfee98a2851.pkl
+|   |-- 9b83e345cbbaf41b18550a481284594d.pkl
+|   |-- 9c5c9891fe7a22d50a58cb7873920237.pkl
+|   |-- 9c90cb57813f1deddcc08bd21e5acc36.pkl
+|   |-- 9ce2172a13b26ca9aff3315f036ba490.pkl
+|   |-- 9d3635b0ca292803d6adc1b75d63707b.pkl
+|   |-- 9f7c3d23aac2ee89f3abf1dcc5992f0c.pkl
+|   |-- a21ebcce9bf2cc7bfbbb5533bafb1cd9.pkl
+|   |-- a29253037b3b6350fffce7dfc6753224.pkl
+|   |-- a3422e69660ee206cef9bb4cf71611e6.pkl
+|   |-- a55be93782f6d309b180dbc6abb91c38.pkl
+|   |-- a6263d2e1938f44e1b0bc687af90e79f.pkl
+|   |-- a726511354f3b824f2d6c1369b247f1a.pkl
+|   |-- a76c17156c489927505823960086c6fa.pkl
+|   |-- a77d7c43280af23f374a1ec43afd9531.pkl
+|   |-- a917e4d9a7de541cd64b1b96fea630a6.pkl
+|   |-- a99ceb41bfd4f33ddd9abfc507281470.pkl
+|   |-- a99ff0480f3bf44635ae0e2773dc9af4.pkl
+|   |-- ab012929c7670d4826459c3a96ae083f.pkl
+|   |-- acc7814249482c82af45185861deebfe.pkl
+|   |-- ad057ae59760751047a0bd93b3fe9f8b.pkl
+|   |-- ad09aa0077123907c13aebb9887eab95.pkl
+|   |-- ad874918a661284a026a9c6eddd2cc7f.pkl
+|   |-- ada186616869ba08967b1fabfb5b8a94.pkl
+|   |-- ae57e251197c28b735bde96b6e103fd6.pkl
+|   |-- afac7fae36cc0cc00d314d607cfa1714.pkl
+|   |-- b00b78c3d00fa4e3d0a2e417769a3c7e.pkl
+|   |-- b1db344400739b7d0d5d89b154bcc458.pkl
+|   |-- b2881cadab367c38554c5c20903f1b06.pkl
+|   |-- b2b6c825a90855dd1156c0a2c87e1231.pkl
+|   |-- b2f729399a32349ac5f25db5b7339426.pkl
+|   |-- b319937a205efe1d0bc99351692c8ddc.pkl
+|   |-- b40a88114af0f17a152b011ffe1d7937.pkl
+|   |-- b7d8528d8d75013da61ea65924af0864.pkl
+|   |-- b7de9eea93ee5e90345b6f43280fe05f.pkl
+|   |-- b91c235e10d038e883bb86b0c893c756.pkl
+|   |-- b9fb1f51c44d33eadd5ec43072079a11.pkl
+|   |-- bb2d1fe4a9d48db7a5999c2eb89df1fe.pkl
+|   |-- bc0d2e247701b7610b64130b2e290ab8.pkl
+|   |-- bc0e7cc0c8413d8a794983bb8c169901.pkl
+|   |-- benchmark_results.json
+|   |-- bf01f055994171bfb8c5aa3c9925de8c.pkl
+|   |-- bfe6f375229acbb9fa0e10a247b08800.pkl
+|   |-- c07a932cf2ad709474059bab58067e1d.pkl
+|   |-- c2157f4e0881029223b486ccecbeb8bf.pkl
+|   |-- c3b26d3ec547d30ab400d1ca9cbcf42a.pkl
+|   |-- c3d196b84626690b63965067255b0e1a.pkl
+|   |-- c3e8beea7931a2b94f633aa90180c859.pkl
+|   |-- c49f010af2abf2b224e45c620e845e12.pkl
+|   |-- c500da58fe2c2a516251249937cd9cc3.pkl
+|   |-- c630cb7230e20b87d0aa197bf1118fad.pkl
+|   |-- c6433f39cbc28455dde19233a8aa1612.pkl
+|   |-- c65954eee870a3d1da78a4de13e2f045.pkl
+|   |-- c7876e3d054bcd00bd2558562802fcfc.pkl
+|   |-- c8aed9de1eb16b824bf7f83f8e70fd7e.pkl
+|   |-- c9e31a840bb66c189098ccc47aecb048.pkl
+|   |-- ca07344f10bd73021c5140c7ea8976f8.pkl
+|   |-- cad9082d659c2e7aa427d82a17787f68.pkl
+|   |-- cc506ac76eaecc607c6a54773007b2c6.pkl
+|   |-- ccf23e4835c1ce2f86cc77961dcb36a1.pkl
+|   |-- cd1a930502c7851a2613e2561ee721db.pkl
+|   |-- cd4ea6004cd1ecf57395a8d3637ec31c.pkl
+|   |-- ce0c92954464e937d97b99b10521a46d.pkl
+|   |-- cea5d13a0af88fd7aed86bbedec466ba.pkl
+|   |-- d01141da865aa0dfd09a6407561fc76b.pkl
+|   |-- d0f39d881e1094b6fb99270c01ebf79c.pkl
+|   |-- d1a90774cc7b440f2bdf007f89db9d2d.pkl
+|   |-- d475db71b33c705750331e9bcc4f9a6e.pkl
+|   |-- d5891679cfe475dc93d014b7a343df59.pkl
+|   |-- d5e39bde0bea8a14829fecd317e37329.pkl
+|   |-- d6af1b36ffb3bacee003e23dbbb9a2ad.pkl
+|   |-- d75cb32c32e644d01ba772a3140a6760.pkl
+|   |-- d7fe2191cb155faa89a0f28251eebd9a.pkl
+|   |-- d84bc038b90b0c7e2af3298fbbcffbfc.pkl
+|   |-- d87afe6129b78ddd20f271dbb08d1792.pkl
+|   |-- d900d9fc8c271aa7d18030b1bb15809f.pkl
+|   |-- d9afe5bffde9831a4904786000b7083f.pkl
+|   |-- dc7ef75cc0ee3a63e706f98409ae3b95.pkl
+|   |-- dc962ea3a6075b88820bf4e9a140ff78.pkl
+|   |-- dd0063e6e9156de4b0c522720ec5fa9c.pkl
+|   |-- dd981ebec1779c49d60e5480600ce185.pkl
+|   |-- ddb8d0e12d41888da0a6c4c0c200b4d3.pkl
+|   |-- de04ac96198131d93aac20d77de01ced.pkl
+|   |-- dee965b2fb88049225fb0142f97c64a5.pkl
+|   |-- dfed292d2aca8347479e7c24dd92cbf0.pkl
+|   |-- e0e08978870fcd0ebcce8327b828548c.pkl
+|   |-- e1717779e98d8aa9311669728f37bc66.pkl
+|   |-- e3087da8f17f806a2ec8c2f11e60b520.pkl
+|   |-- e4411cfa83d28c648c1ee99b73cf3ffe.pkl
+|   |-- e5c5f7f6582c154941fafc2f338aaad4.pkl
+|   |-- e63ff1bd0f5805d76f6c2dd4fc17d219.pkl
+|   |-- e6a9d9fbed8c03a19f801d57d6fad342.pkl
+|   |-- e71179e7ef6abcafa274ec4df2094a52.pkl
+|   |-- e975f92faff6d28ff5ac7ea2e4e2e33c.pkl
+|   |-- eb11a837c28e52504149d8631e2c2059.pkl
+|   |-- eb1805d06519fc26b0c22075150e21dd.pkl
+|   |-- ec569f3b5456f7c986e938248d498530.pkl
+|   |-- ecae140dbd109e305e7f564e5d80c22e.pkl
+|   |-- ed1b3b9c089067afd7db55f19a21dc53.pkl
+|   |-- ee294423c21f8a0261e35ca8364a0c39.pkl
+|   |-- eefe080eb37c51d7b30abc117b74641a.pkl
+|   |-- f151a1a5c22c9f8076496dc06e56e8ec.pkl
+|   |-- f1d2a4be16b9b388b6cf96dcc6abcd02.pkl
+|   |-- f21c3a7b02ab7c325aa57cfc0b3b6e02.pkl
+|   |-- f43d02a9f1d71b6d6a59299de7872e7f.pkl
+|   |-- f4946312472ee5a81bd1da0691fca418.pkl
+|   |-- f49b247e7be3a562ceff7ec945577905.pkl
+|   |-- f5bc242baea54a28c4475334753213da.pkl
+|   |-- f70a9a598db7963674a0c33b68d4cd3f.pkl
+|   |-- f73b760c25d782ad7b75ef02503bfdc8.pkl
+|   |-- f7931ab8bf662ede1792d981fd78f6ac.pkl
+|   |-- f7fd134d7ae6666e010044b3e2c79982.pkl
+|   |-- fa1698d428987195c8731ee9dc57391b.pkl
+|   |-- fb04fbeb452d37c3f5c0a3999f393f57.pkl
+|   |-- fdeb2f4c7a5b68ec37440742babbcc48.pkl
+|   |-- ff522d9d8ec9b9932038221d9eb40168.pkl
+|   `-- ff6f79df6e7dc0849378afa4491443a1.pkl
+|-- configs
+|   |-- __init__.py
+|   |-- dataset_config.py
+|   `-- model_config.py
+|-- doc
+|   |-- LOVM
+|   |-- SWAB
+|   |-- VEGA
+|   |-- collect_model_index.md
+|   |-- important_notes.md
+|   |-- index.md
+|   |-- index_update.md
+|   |-- metrics_explanation.md
+|   |-- opening_report.txt
+|   |-- output
+|   `-- vega_optimization.md
+|-- evaluation
+|   |-- __init__.py
+|   `-- metrics.py
+|-- experiments
+|   |-- __init__.py
+|   |-- evaluate.py
+|   |-- main.py
+|   `-- run_baselines.py
+|-- methods
+|   |-- __init__.py
+|   |-- __pycache__
+|   |   `-- __init__.cpython-38.pyc
+|   |-- baseline
+|   |   |-- __init__.py
+|   |   |-- __pycache__
+|   |   |   |-- __init__.cpython-38.pyc
+|   |   |   |-- logme.cpython-38.pyc
+|   |   |   `-- vega.cpython-38.pyc
+|   |   |-- logme.py
+|   |   `-- vega.py
+|   `-- test_vega.py
+|-- models
+|   |-- BAAI-AltCLIP
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- sentencepiece.bpe.model
+|   |   |-- special_tokens_map.json
+|   |   |-- tokenizer.json
+|   |   `-- tokenizer_config.json
+|   |-- geolocal-street-clip
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- merges.txt
+|   |   |-- nagasaki.jpg
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- sanfrancisco.jpeg
+|   |   |-- special_tokens_map.json
+|   |   |-- tokenizer.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.json
+|   |-- google-siglip-base-patch16-224
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- model.safetensors
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- spiece.model
+|   |   |-- tokenizer.json
+|   |   `-- tokenizer_config.json
+|   |-- google-siglip-so400m-patch14-384
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- model.safetensors
+|   |   |-- preprocessor_config.json
+|   |   |-- special_tokens_map.json
+|   |   |-- spiece.model
+|   |   |-- tokenizer.json
+|   |   `-- tokenizer_config.json
+|   |-- imageomics-bioclip
+|   |   |-- README.md
+|   |   |-- merges.txt
+|   |   |-- open_clip_config.json
+|   |   |-- open_clip_pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tokenizer.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.json
+|   |-- kakaobrain-align-base
+|   |   |-- config.json
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.txt
+|   |-- metaclip-b32-fullcc2.5b
+|   |   |-- README.md
+|   |   |-- added_tokens.json
+|   |   |-- config.json
+|   |   |-- merges.txt
+|   |   |-- metaclip_b32_fullcc2.5b.bin
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.json
+|   |-- microsoft-BiomedCLIP-PubMedBERT_256-vit_base_patcg16_224
+|   |   |-- README.md
+|   |   |-- biomed-vlp-eval.svg
+|   |   |-- biomed_clip_example.ipynb
+|   |   |-- open_clip_config.json
+|   |   |-- open_clip_pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tokenizer.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.txt
+|   |-- nvidia-groupvit-gcc-yfcc
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- merges.txt
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tf_model.h5
+|   |   |-- tokenizer.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.json
+|   |-- openai-clip-vit-base-patch32
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- flax_model.msgpack
+|   |   |-- merges.txt
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tf_model.h5
+|   |   |-- tokenizer.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.json
+|   |-- openai-clip-vit-large-patch14
+|   |   |-- README.md
+|   |   |-- config.json
+|   |   |-- flax_model.msgpack
+|   |   |-- merges.txt
+|   |   |-- model.safetensors
+|   |   |-- preprocessor_config.json
+|   |   |-- pytorch_model.bin
+|   |   |-- special_tokens_map.json
+|   |   |-- tf_model.h5
+|   |   |-- tokenizer.json
+|   |   |-- tokenizer_config.json
+|   |   `-- vocab.json
+|   `-- wisdomik-QuiltNet-B-32
+|       |-- ADI-TCGA-CFQTRNMG.tif
+|       |-- README.md
+|       |-- all_inclusive.pth.tar
+|       |-- barchart_zeroshot.png
+|       |-- config.json
+|       |-- cyto_histo.pth.tar
+|       |-- dino_checkpoint.pth.tar
+|       |-- gitattributes
+|       |-- merges.txt
+|       |-- open_clip_config.json
+|       |-- preprocessor_config.json
+|       |-- special_tokens_map.json
+|       |-- tokenizer.json
+|       |-- tokenizer_config.json
+|       `-- vocab.json
+|-- oracle_eval
+|   |-- __init__.py
+|   |-- __pycache__
+|   |   |-- __init__.cpython-38.pyc
+|   |   |-- data_loader.cpython-38.pyc
+|   |   `-- run_oracle.cpython-38.pyc
+|   |-- analyze_oracle.py
+|   |-- data_loader.py
+|   |-- oracle_analysis.png
+|   |-- oracle_log.txt
+|   `-- run_oracle.py
+|-- scripts
+|   |-- __pycache__
+|   |   `-- explore_data.cpython-312.pyc
+|   |-- explore_data.py
+|   |-- extract_class_text_features.py
+|   |-- run_benchmark.py
+|   |-- vega_log.txt
+|   `-- verify_vega.py
+|-- server_VEGA_index.txt
+`-- utils
+    |-- __init__.py
+    |-- data_loader.py
+    `-- graph_utils.py
+
+31 directories, 486 files
