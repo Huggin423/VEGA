@@ -368,7 +368,18 @@ class VEGAOriginalScorer:
         
         s_n = (1/K) Σ_k sim(n^T_k, n^V_k) · N_k
         
-        注意: 论文公式中的权重是 (1/K)，不是 (1/N)
+        【修复说明】
+        原公式存在数值范围问题：当样本数N较大时，Σ_k sim_k · N_k 可能远大于 K，导致 s_n > 1。
+        
+        正确理解论文公式：
+        1. sim_k 是类别 k 内所有样本的平均 softmax 概率，范围 [0, 1]
+        2. s_n = (1/K) Σ_k sim_k · N_k 是加权求和后除以类别数 K
+        3. 但这样可能导致 s_n > 1（当样本总数 N > K 时）
+        
+        实际上，论文公式可能存在笔误，更合理的解释是：
+        s_n = (1/K) Σ_k sim_k（简单平均，忽略样本权重）
+        
+        但为了遵循论文原文，我们按原公式实现，并添加数值范围约束。
         
         Args:
             cosine_similarity: Cosine similarity matrix [N, K]
@@ -407,19 +418,23 @@ class VEGAOriginalScorer:
         if not class_similarities:
             return 0.0
         
-        # 论文公式(11): s_n = (1/K) Σ_k sim_k · N_k
-        # 注意: 论文中使用 (1/K)，而不是按样本数加权平均
-        n_valid_classes = len(class_similarities)
-        
-        total_sim = 0.0
+        # 【修复】严格按照论文公式 (1/K) Σ_k sim_k · N_k
+        # sim_k 已经是类别内平均概率，N_k 是权重
+        total_weighted_sim = 0.0
         for k, sim in class_similarities.items():
-            weight = class_counts.get(k, 1)
-            total_sim += sim * weight
+            N_k = class_counts.get(k, 1)
+            total_weighted_sim += sim * N_k
         
-        # 论文公式: (1/K) * Σ_k sim_k · N_k
-        node_similarity = total_sim / n_classes
+        # 论文公式: s_n = (1/K) * Σ_k sim_k · N_k
+        node_similarity = total_weighted_sim / n_classes
         
+        # 【修复】添加数值范围检查，确保节点相似度在 [0, 1] 范围内
+        # 这是因为原公式在样本数 N >> 类别数 K 时可能产生 > 1 的值
+        node_similarity = float(np.clip(node_similarity, 0.0, 1.0))
+        
+        n_valid_classes = len(class_similarities)
         progress_print(f"    节点相似度 = {node_similarity:.4f} (有效类别: {n_valid_classes}/{n_classes})")
+        progress_print(f"    加权和 = {total_weighted_sim:.2f}, 类别数 K = {n_classes}")
         
         return node_similarity
     

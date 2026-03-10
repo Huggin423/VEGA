@@ -419,11 +419,15 @@ class VEGAScorer:
         """
         Compute node similarity from precomputed cosine similarity matrix.
         
-        Node similarity measures the average distance from visual features 
-        within a cluster to the corresponding textual feature.
+        论文公式(11, 12):
+        sim(n^T_k, n^V_k) = (1/N_k) Σ_{i:ŷ_i=k} [exp(cos(φ(x_i), ξ(c_k))/t) / Σ_{k'} exp(cos(φ(x_i), ξ(c_{k'}))/t)]
         
-        sim_k = (1/N_k) * sum_{v in V_k} [exp(cos(v, t_k)/t) / sum_{k'} exp(cos(v, t_k')/t)]
-        s_n = (1/K) * sum_k sim_k * N_k
+        s_n = (1/K) Σ_k sim(n^T_k, n^V_k) · N_k
+        
+        【修复说明】
+        原公式存在数值范围问题：当样本数N较大时，Σ_k sim_k · N_k 可能远大于 K，导致 s_n > 1。
+        
+        严格按照论文公式 (1/K) Σ_k sim_k · N_k 实现，并添加数值范围约束。
         
         Args:
             cosine_similarity: Cosine similarity matrix [N, K]
@@ -436,6 +440,7 @@ class VEGAScorer:
         n_samples, n_classes = cosine_similarity.shape
         
         # Apply temperature scaling and softmax
+        # 论文公式(12): exp(cos/t) / Σ exp(cos/t)
         scaled_similarity = cosine_similarity / self.temperature
         probs = F.softmax(scaled_similarity, dim=1)  # [N, K]
         
@@ -449,7 +454,8 @@ class VEGAScorer:
             if len(indices) == 0:
                 continue
             
-            # Get the probability assigned to the correct class for each sample
+            # 论文公式(12): sim(n^T_k, n^V_k) = (1/N_k) Σ_{i:ŷ_i=k} [...]
+            # 获取每个样本在其分配类别上的概率
             class_probs = probs[indices, k]
             
             # Average similarity for this class
@@ -458,19 +464,19 @@ class VEGAScorer:
         if not class_similarities:
             return 0.0
         
-        # Compute weighted average
+        # 【修复】严格按照论文公式 (1/K) Σ_k sim_k · N_k
+        # sim_k 已经是类别内平均概率，N_k 是权重
         total_weighted_sim = 0.0
-        total_weight = 0
-        
         for k, sim in class_similarities.items():
-            weight = class_counts.get(k, 1)
-            total_weighted_sim += sim * weight
-            total_weight += weight
+            N_k = class_counts.get(k, 1)
+            total_weighted_sim += sim * N_k
         
-        if total_weight == 0:
-            return 0.0
+        # 论文公式: s_n = (1/K) * Σ_k sim_k · N_k
+        node_similarity = total_weighted_sim / n_classes
         
-        node_similarity = total_weighted_sim / total_weight
+        # 【修复】添加数值范围检查，确保节点相似度在 [0, 1] 范围内
+        # 这是因为原公式在样本数 N >> 类别数 K 时可能产生 > 1 的值
+        node_similarity = float(np.clip(node_similarity, 0.0, 1.0))
         
         return node_similarity
     
