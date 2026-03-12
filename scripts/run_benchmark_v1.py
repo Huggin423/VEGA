@@ -38,7 +38,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import ORIGINAL VEGA implementation (without optimizations)
-from methods.baseline.vega_original_baseline import VEGAOriginalScorer
+from methods.baseline.vega_v1 import VEGAOriginalScorer
 
 # ============================================================================
 # Configuration

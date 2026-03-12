@@ -19,7 +19,7 @@ import numpy as np
 
 from utils.data_loader import PTMDataLoader
 from methods.baseline.logme import LogME
-from methods.baseline.vega import VEGAScorer, compute_vega_score
+from methods.baseline.vega_v2 import VEGAScorer, compute_vega_score
 from evaluation.metrics import compute_full_metrics, print_metrics
 from configs.dataset_config import get_dataset_list, VALID_DATASETS
 

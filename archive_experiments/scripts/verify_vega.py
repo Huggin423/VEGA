@@ -16,7 +16,7 @@ from pathlib import Path
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from methods.baseline.vega import VEGAScorer
+from methods.baseline.vega_v2 import VEGAScorer
 
 
 # ==================== 配置 ====================
