@@ -13,7 +13,6 @@ sys.path.insert(0, str(project_root))
 
 from methods.baseline.vega_v4 import VEGAv4Scorer
 from methods.baseline.logme import LogME
-from utils.data_processor import DatasetManager
 
 # =============================================================================
 # Configuration
