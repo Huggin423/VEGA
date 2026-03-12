@@ -1,35 +1,46 @@
 """
-VEGA Optimized Version: Visual-Textual Graph Alignment with Mathematical Corrections
+VEGA SNR Version: Visual-Textual Graph Alignment with SNR-based Node Similarity
 Reference: VEGA Paper - "Learning to Rank Pre-trained Vision-Language Models for Downstream Tasks"
 
-优化版本 - 严格遵循 VEGA 框架，修复数学和工程缺陷
+SNR版本 - 使用信号噪声比(Signal-to-Noise Ratio)进行 Node Similarity 计算
 
-核心优化:
+核心改进 (相对于 VEGACalibratedScorer):
 
-1. 【鲁棒视觉图 (Dimensionality & Stability)】
-   - PCA 降维 (pca_dim=64) 解决 O(D³) 维度诅咒
-   - Ledoit-Wolf Shrinkage 正则化防止奇异矩阵 (NaN)
-   - 向量化 batched slogdet 实现加速
+1. 【问题诊断】
+   - 加载的 `logits` 实际上是未缩放的原始 cosine similarities (值域 [-1, 1])
+   - 对原始相似度应用 Softmax 隐式强制温度 T=1.0
+   - 这导致严重的概率坍塌 (所有 s_n ≈ 1/K = 0.01)
+   - `logit_scale` 在保存的数据中丢失
+   - 原始 cosine 幅度严重受架构偏差影响 (ResNet vs. ViT)
 
-2. 【边相似度度量修正 ($s_e$)】
-   - 原论文问题: Pearson 相关性计算在 Cosine Similarity 和 Bhattacharyya Distance 之间
-   - 这导致负相关 (距离 vs 相似度的悖论)
-   - 优化: 将 Bhattacharyya 距离转换为相似度系数: bh_coeff = exp(-D_B)
-   - 现在 Pearson 相关性正确度量拓扑对齐
-   - s_e = (corr + 1) / 2
+2. 【解决方案: SNR-based Node Similarity ($s_n$)】
+   - 采用无参数、尺度不变的置信度度量
+   - 使用样本内 Z-score of maximum logit (Signal-to-Noise Ratio)
+   - 计算:
+     max_logits = logits.max(dim=1)    # [N]
+     mean_logits = logits.mean(dim=1)  # [N]
+     std_logits = logits.std(dim=1)    # [N]
+     snr = (max_logits - mean_logits) / (std_logits + EPS)
+     s_n = snr.mean()
+   - 优势: 完全不受架构偏差影响，无需温度参数
 
-3. 【节点相似度的自适应温度缩放 ($s_n$)】
-   - 固定温度 (t=0.05) 不公平地惩罚不同架构的模型
-   - 优化: 在 Softmax 前应用实例级标准化
-   - scaled_cos = (cosine_similarity - mean) / (std + EPS)
-   - 这使得跨架构的尺度不变
+3. 【权重配置】
+   - 默认: node_weight=1.0, edge_weight=0.0
+   - 隔离 SNR 节点相似度作为主要预测器
 
-4. 【自然融合】
-   - 回到原始融合方法: vega_score = s_n + s_e
-   - 默认权重: node_weight=1.0, edge_weight=1.0
+4. 【保留视觉图逻辑】
+   - PCA、Shrinkage 协方差、向量化 Bhattacharyya 系数保持不变
+   - $s_e$ 仍在 return_details 中输出，用于后续分析
+
+实验动机:
+- 原始 cosine 相似度的绝对值受架构影响
+- ResNet 特征紧凑，cosine 值高
+- ViT 特征分散，cosine 值低但边缘更好
+- SNR 度量的是相对置信度，而非绝对值
+- 因此不受架构偏差影响
 
 更新日志:
-- 2026-03-11: 创建优化版本，修复 VEGA 框架的数学缺陷
+- 2026-03-11: 创建 SNR 版本，使用 Signal-to-Noise Ratio
 """
 
 import numpy as np
@@ -61,42 +72,43 @@ EPS = 1e-8
 def progress_print(msg: str, level: str = "INFO"):
     """打印进度信息"""
     if VERBOSE_LOGGING or level == "WARNING":
-        print(f"[VEGA-Optimized] {msg}", flush=True)
+        print(f"[VEGA-SNR] {msg}", flush=True)
 
 
-class VEGAOptimizedScorer:
+def timing_print(msg: str, start_time: float = None):
+    """打印带时间的进度信息"""
+    if start_time is not None:
+        elapsed = time.time() - start_time
+        print(f"[VEGA-SNR] {msg} (耗时: {elapsed:.2f}s)", flush=True)
+    else:
+        print(f"[VEGA-SNR] {msg}", flush=True)
+
+
+class VEGASNRScorer:
     """
-    VEGA 优化版本评分器
+    VEGA SNR版本评分器
     
-    严格遵循 VEGA 框架，修复数学和工程缺陷
+    核心改进:
     
-    框架流程:
-    1. 构建文本图 (Textual Graph)
-       - 节点: 文本嵌入 (L2 归一化)
-       - 边: Cosine 相似度矩阵 [K, K]
+    1. **SNR-based Node Similarity ($s_n$)**
+       - 无参数、尺度不变的置信度度量
+       - 使用样本内 Z-score of maximum logit
+       - s_n = mean((max_logits - mean_logits) / std_logits)
+       - 不受架构偏差影响，无需温度参数
     
-    2. 构建视觉图 (Visual Graph)
-       - PCA 降维解决维度诅咒
-       - Shrinkage 正则化防止奇异矩阵
-       - 节点: 类别均值
-       - 边: Bhattacharyya 系数矩阵 (相似度!)
+    2. **权重配置**
+       - 默认 node_weight=1.0, edge_weight=0.0
+       - 隔离 SNR 节点相似度
+       - Edge Similarity 因架构偏差问题被禁用
     
-    3. 计算节点相似度 ($s_n$)
-       - 自适应温度缩放 (实例级标准化)
-       - Softmax 获取概率分布
-       - s_n = 平均伪标签置信度
-    
-    4. 计算边相似度 ($s_e$)
-       - Pearson 相关性 (文本边 vs 视觉边)
-       - 两者都是相似度度量，相关性有意义
-       - s_e = (corr + 1) / 2
-    
-    5. 融合
-       - vega_score = node_weight * s_n + edge_weight * s_e
+    3. **保留视觉图逻辑**
+       - PCA、Shrinkage、Bhattacharyya 系数保持不变
+       - s_e 仍在 return_details 中输出
     
     使用方法:
-        vega = VEGAOptimizedScorer(pca_dim=64, shrinkage_alpha=0.1)
-        score = vega.compute_score(visual_features, text_embeddings)
+        vega = VEGASNRScorer(pca_dim=64, shrinkage_alpha=0.1, 
+                             node_weight=1.0, edge_weight=0.0)
+        score = vega.compute_score(visual_features, text_embeddings, logits)
     """
     
     def __init__(
@@ -105,17 +117,17 @@ class VEGAOptimizedScorer:
         pca_dim: int = 64,
         shrinkage_alpha: float = 0.1,
         node_weight: float = 1.0,
-        edge_weight: float = 1.0
+        edge_weight: float = 0.0
     ):
         """
-        初始化 VEGA 优化版本评分器
+        初始化 VEGA SNR版本评分器
         
         Args:
             min_samples_per_class: 每个类别最少样本数
             pca_dim: PCA 降维后的维度 (默认 64)
             shrinkage_alpha: Shrinkage 正则化参数 α (默认 0.1)
             node_weight: 节点相似度权重 (默认 1.0)
-            edge_weight: 边相似度权重 (默认 1.0)
+            edge_weight: 边相似度权重 (默认 0.0，因架构偏差问题)
         """
         self.min_samples_per_class = min_samples_per_class
         self.pca_dim = pca_dim
@@ -123,13 +135,12 @@ class VEGAOptimizedScorer:
         self.node_weight = node_weight
         self.edge_weight = edge_weight
         
-        progress_print(f"初始化 VEGAOptimizedScorer:")
+        progress_print(f"初始化 VEGASNRScorer:")
         progress_print(f"  PCA 维度: {pca_dim}")
         progress_print(f"  Shrinkage alpha: {shrinkage_alpha}")
         progress_print(f"  Node weight: {node_weight}")
         progress_print(f"  Edge weight: {edge_weight}")
-        progress_print(f"  节点相似度: 自适应温度缩放 (实例级标准化)")
-        progress_print(f"  边相似度: Bhattacharyya 系数 (相似度度量)")
+        progress_print(f"  Node Similarity: SNR-based (无参数，尺度不变)")
     
     def _to_tensor(self, x: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """将输入转换为 PyTorch Tensor"""
@@ -147,10 +158,6 @@ class VEGAOptimizedScorer:
         """L2 归一化特征向量"""
         return F.normalize(features, p=2, dim=1)
     
-    # =========================================================================
-    # 优化 1: 鲁棒视觉图 (Dimensionality & Stability)
-    # =========================================================================
-    
     def _apply_pca(
         self, 
         features: torch.Tensor,
@@ -159,14 +166,7 @@ class VEGAOptimizedScorer:
         """
         应用 PCA 降维
         
-        解决 O(D³) 维度诅咒问题
-        
-        Args:
-            features: 输入特征 [N, D]
-            pca_dim: 目标维度
-            
-        Returns:
-            (reduced_features, V, S) 元组
+        保留自 VEGAPerfectScorer - 运行完美
         """
         n_samples, n_features = features.shape
         
@@ -176,15 +176,12 @@ class VEGAOptimizedScorer:
         
         progress_print(f"    应用 PCA: {n_features} -> {pca_dim}")
         
-        # 中心化
         mean = features.mean(dim=0, keepdim=True)
         centered = features - mean
         
-        # 使用 torch.pca_lowrank 进行高效 PCA
         U, S, V = torch.pca_lowrank(centered, q=pca_dim, center=False)
         reduced_features = U * S
         
-        # 计算解释方差比例
         total_var = (centered ** 2).sum()
         explained_var = (S ** 2).sum()
         explained_ratio = explained_var / total_var
@@ -193,24 +190,46 @@ class VEGAOptimizedScorer:
         
         return reduced_features, V, S
     
+    def compute_pseudo_labels_from_logits(
+        self, 
+        logits: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        从 logits 计算伪标签
+        
+        Args:
+            logits: 模型预测 [N, K] (原始 cosine similarities)
+            
+        Returns:
+            伪标签 [N]
+        """
+        return logits.argmax(dim=1)
+    
+    def build_textual_graph(self, text_embeddings: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        构建文本图
+        
+        节点: 文本特征 (L2 归一化)
+        边: Cosine 相似度矩阵 [K, K]
+        """
+        progress_print("  构建文本图...")
+        
+        text_embeddings = self._normalize_features(text_embeddings)
+        nodes = text_embeddings
+        edges = nodes @ nodes.T  # Cosine similarity [K, K]
+        
+        progress_print(f"    文本图节点: {nodes.shape}, 边矩阵: {edges.shape}")
+        
+        return nodes, edges
+    
     def _compute_shrunk_covariance(
         self, 
         features: torch.Tensor
     ) -> torch.Tensor:
         """
-        计算 Ledoit-Wolf Shrinkage 正则化后的协方差矩阵
+        计算 Shrinkage 正则化后的完整协方差矩阵
         
-        防止奇异矩阵 (NaN) 错误
-        
-        数学公式:
-        Σ_shrunk = (1 - α) * Σ + α * T
-        其中 T = (tr(Σ) / d) * I 是缩放的单位矩阵
-        
-        Args:
-            features: 输入特征 [N, d]
-            
-        Returns:
-            正则化后的协方差矩阵 [d, d]
+        保留自 VEGAPerfectScorer - 运行完美
         """
         n_samples, n_features = features.shape
         device = features.device
@@ -219,58 +238,16 @@ class VEGAOptimizedScorer:
         if n_samples < 2:
             return torch.eye(n_features, device=device, dtype=dtype)
         
-        # 计算样本协方差矩阵
         cov = torch.cov(features.T, correction=0)
         
-        # Ledoit-Wolf Shrinkage
         alpha = self.shrinkage_alpha
         trace_cov = torch.trace(cov)
         target_diag = trace_cov / n_features
         T = target_diag * torch.eye(n_features, device=device, dtype=dtype)
         
-        # 正则化协方差
         shrunk_cov = (1 - alpha) * cov + alpha * T
         
         return shrunk_cov
-    
-    # =========================================================================
-    # 文本图构建
-    # =========================================================================
-    
-    def build_textual_graph(
-        self, 
-        text_embeddings: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        构建文本图
-        
-        节点: 文本嵌入 (L2 归一化)
-        边: Cosine 相似度矩阵 [K, K]
-        
-        Args:
-            text_embeddings: 文本嵌入 [K, D]
-            
-        Returns:
-            (nodes, edges) 元组
-            nodes: [K, D] 归一化文本嵌入
-            edges: [K, K] Cosine 相似度矩阵
-        """
-        progress_print("  构建文本图...")
-        
-        # L2 归一化
-        nodes = self._normalize_features(text_embeddings)
-        
-        # Cosine 相似度作为边
-        edges = nodes @ nodes.T  # [K, K]
-        
-        progress_print(f"    文本图节点: {nodes.shape}, 边矩阵: {edges.shape}")
-        progress_print(f"    边值范围: [{edges.min().item():.4f}, {edges.max().item():.4f}]")
-        
-        return nodes, edges
-    
-    # =========================================================================
-    # 视觉图构建 (带 PCA 和 Shrinkage)
-    # =========================================================================
     
     def build_visual_graph(
         self, 
@@ -281,18 +258,7 @@ class VEGAOptimizedScorer:
         """
         构建视觉图 (在 PCA 降维后的特征上)
         
-        步骤:
-        1. PCA 降维解决维度诅咒
-        2. 计算每个类别的统计量 (均值, 协方差)
-        3. Shrinkage 正则化防止奇异矩阵
-        4. 计算 Bhattacharyya 系数矩阵 (相似度!)
-        
-        Args:
-            visual_features: 视觉特征 [N, D]
-            pseudo_labels: 伪标签 [N]
-            n_classes: 类别数 K
-            
-        Returns:
+        返回:
             (class_means, class_covs, class_counts, edge_matrix) 元组
             edge_matrix: Bhattacharyya 系数矩阵 [K, K] (相似度)
         """
@@ -305,7 +271,7 @@ class VEGAOptimizedScorer:
         
         progress_print(f"    原始维度: {n_features}, 样本数: {n_samples}, 类别数: {n_classes}")
         
-        # 步骤 1: PCA 降维
+        # PCA 降维
         pca_start = time.time()
         reduced_features, _, _ = self._apply_pca(visual_features, self.pca_dim)
         pca_time = time.time() - pca_start
@@ -314,7 +280,7 @@ class VEGAOptimizedScorer:
         # L2 归一化
         reduced_features = self._normalize_features(reduced_features)
         
-        # 步骤 2: 计算每个类别的统计量
+        # 计算每个类别的统计量
         class_means_list = []
         class_covs_list = []
         class_counts = {}
@@ -331,11 +297,9 @@ class VEGAOptimizedScorer:
             class_counts[k] = len(indices)
             valid_classes.append(k)
             
-            # 类别均值
             class_mean = class_features.mean(dim=0)
             class_means_list.append(class_mean)
             
-            # 步骤 3: Shrinkage 正则化协方差
             class_cov = self._compute_shrunk_covariance(class_features)
             class_covs_list.append(class_cov)
         
@@ -351,7 +315,7 @@ class VEGAOptimizedScorer:
         
         progress_print(f"    均值矩阵: {class_means.shape}, 协方差张量: {class_covs.shape}")
         
-        # 步骤 4: 计算 Bhattacharyya 系数矩阵 (相似度!)
+        # 向量化计算 Bhattacharyya 系数矩阵 (相似度!)
         progress_print("    计算 Bhattacharyya 系数矩阵 (向量化)...")
         
         edge_matrix = self._compute_bhattacharyya_coefficient_vectorized(
@@ -375,17 +339,7 @@ class VEGAOptimizedScorer:
         """
         向量化计算 Bhattacharyya 系数矩阵 (相似度)
         
-        【优化 2: 度量修正】
-        
-        原论文问题:
-        - 计算的是 Bhattacharyya 距离 D_B (距离度量，越大越不相似)
-        - 文本边是 Cosine 相似度 (相似度度量，越大越相似)
-        - Pearson 相关性在距离和相似度之间计算，导致负相关
-        
-        优化:
-        - 将 Bhattacharyya 距离转换为系数: BC = exp(-D_B)
-        - BC ∈ [0, 1]，是相似度度量
-        - 现在 Pearson 相关性正确度量拓扑对齐
+        【保留自 VEGAPerfectScorer】
         
         数学推导:
         D_B = 1/8 * (μ_1 - μ_2)^T Σ_avg^{-1} (μ_1 - μ_2) + 1/2 * ln(|Σ_avg| / sqrt(|Σ_1||Σ_2|))
@@ -394,10 +348,6 @@ class VEGAOptimizedScorer:
         Args:
             class_means: [K_valid, pca_dim]
             class_covs: [K_valid, pca_dim, pca_dim]
-            valid_classes: 有效类别列表
-            n_classes: 总类别数
-            device: 设备
-            dtype: 数据类型
             
         Returns:
             Bhattacharyya 系数矩阵 [K, K] (相似度，对角线=1.0)
@@ -423,7 +373,6 @@ class VEGAOptimizedScorer:
         term1 = 0.125 * (mu_diff.transpose(-2, -1) @ quad_form).squeeze(-1).squeeze(-1)
         
         # Term2: 1/2 * ln(|Σ_avg|) - 1/4 * ln(|Σ_1|) - 1/4 * ln(|Σ_2|)
-        # 使用 slogdet 防止数值溢出
         sign_avg, logdet_avg = torch.linalg.slogdet(sigma_avg)
         sign_i, logdet_i = torch.linalg.slogdet(class_covs)
         sign_j, logdet_j = torch.linalg.slogdet(class_covs)
@@ -436,15 +385,13 @@ class VEGAOptimizedScorer:
         # 确保非负
         bh_distance = torch.clamp(bh_distance, min=0.0)
         
-        # 【关键优化】转换为 Bhattacharyya 系数 (相似度)
+        # 转换为 Bhattacharyya 系数 (相似度)
         # BC = exp(-D_B) ∈ [0, 1]
         bh_coefficient = torch.exp(-bh_distance)  # [K_valid, K_valid]
         
         # 对角线设为 1.0 (同一类别的相似度为 1)
         diagonal_mask = torch.eye(n_valid, device=device, dtype=dtype)
         bh_coefficient = bh_coefficient * (1 - diagonal_mask) + diagonal_mask
-        
-        progress_print(f"      Bhattacharyya 系数范围: [{bh_coefficient.min().item():.4f}, {bh_coefficient.max().item():.4f}]")
         
         # 填充到完整矩阵
         edge_matrix = torch.zeros(n_classes, n_classes, device=device, dtype=dtype)
@@ -454,82 +401,74 @@ class VEGAOptimizedScorer:
         
         return edge_matrix
     
-    # =========================================================================
-    # 优化 3: 自适应温度缩放的节点相似度
-    # =========================================================================
-    
-    def compute_node_similarity(
+    def compute_node_similarity_snr(
         self,
-        visual_features: torch.Tensor,
-        text_embeddings: torch.Tensor,
-        pseudo_labels: torch.Tensor
+        logits_tensor: torch.Tensor
     ) -> float:
         """
-        计算节点相似度 (自适应温度缩放版本)
+        计算节点相似度 (SNR-based 版本)
         
-        【优化 3: 自适应温度缩放】
+        【核心改进: Signal-to-Noise Ratio】
         
-        问题:
-        - 固定温度 (t=0.05) 不公平地惩罚不同架构的模型
-        - ResNet 特征紧凑，cosine 值高
-        - ViT 特征分散，cosine 值低
+        问题诊断:
+        - 加载的 `logits` 是未缩放的原始 cosine similarities (值域 [-1, 1])
+        - 对原始相似度应用 Softmax 隐式强制温度 T=1.0
+        - 这导致严重的概率坍塌 (所有 s_n ≈ 1/K = 0.01)
+        - `logit_scale` 在保存的数据中丢失
+        - 原始 cosine 幅度严重受架构偏差影响 (ResNet vs. ViT)
         
         解决方案:
-        - 在 Softmax 前应用实例级标准化
-        - scaled_cos = (cosine_similarity - mean) / (std + EPS)
-        - 这使得跨架构的尺度不变
+        - 采用无参数、尺度不变的置信度度量
+        - 使用样本内 Z-score of maximum logit (Signal-to-Noise Ratio)
         
         计算:
-        1. 计算 cosine_similarity = visual_features @ text_embeddings.T
-        2. 实例级标准化: scaled_cos = (cos - mean) / std
-        3. Softmax 获取概率分布
-        4. s_n = 平均伪标签置信度
+        - max_logits = logits.max(dim=1)    # [N]
+        - mean_logits = logits.mean(dim=1)  # [N]
+        - std_logits = logits.std(dim=1)    # [N]
+        - snr = (max_logits - mean_logits) / (std_logits + EPS)
+        - s_n = snr.mean()
+        
+        优势:
+        - 完全不受架构偏差影响
+        - 无需温度参数
+        - 度量的是相对置信度，而非绝对值
         
         Args:
-            visual_features: 视觉特征 [N, D]
-            text_embeddings: 文本嵌入 [K, D]
-            pseudo_labels: 伪标签 [N]
+            logits_tensor: 原始 cosine similarities [N, K]
             
         Returns:
-            节点相似度分数 [范围 (0, 1)]
+            节点相似度分数 [SNR 值，通常 > 0]
         """
-        progress_print("  计算节点相似度 (自适应温度缩放)...")
+        progress_print("  计算节点相似度 (SNR-based 版本)...")
         
-        n_samples = visual_features.shape[0]
-        n_classes = text_embeddings.shape[0]
+        n_samples = logits_tensor.shape[0]
         
-        # 步骤 1: 计算 Cosine 相似度
-        visual_normalized = self._normalize_features(visual_features)
-        text_normalized = self._normalize_features(text_embeddings)
-        cosine_similarity = visual_normalized @ text_normalized.T  # [N, K]
+        # 【核心改进】计算 Signal-to-Noise Ratio
+        # 这是无参数、尺度不变的置信度度量
         
-        progress_print(f"    Cosine 相似度范围: [{cosine_similarity.min().item():.4f}, {cosine_similarity.max().item():.4f}]")
+        # 每个样本的最大 logit (预测类别的置信度)
+        max_logits = logits_tensor.max(dim=1)[0]  # [N]
         
-        # 步骤 2: 实例级标准化 (自适应温度)
-        # 这是关键优化 - 使得跨架构尺度不变
-        mean_cos = cosine_similarity.mean(dim=1, keepdim=True)  # [N, 1]
-        std_cos = cosine_similarity.std(dim=1, keepdim=True)    # [N, 1]
+        # 每个样本的均值和标准差
+        mean_logits = logits_tensor.mean(dim=1)  # [N]
+        std_logits = logits_tensor.std(dim=1)    # [N]
         
-        # 标准化后的相似度
-        scaled_cos = (cosine_similarity - mean_cos) / (std_cos + EPS)
+        # Signal-to-Noise Ratio (Z-score of maximum)
+        # 度量最大值相对于分布中心的偏离程度
+        snr = (max_logits - mean_logits) / (std_logits + EPS)
         
-        progress_print(f"    标准化后范围: [{scaled_cos.min().item():.4f}, {scaled_cos.max().item():.4f}]")
+        # s_n 是所有样本的平均 SNR
+        node_similarity = snr.mean().item()
         
-        # 步骤 3: Softmax 获取概率分布
-        probs = F.softmax(scaled_cos, dim=1)  # [N, K]
-        
-        # 步骤 4: 计算伪标签的平均置信度
-        # s_n = mean(probs[i, pseudo_label[i]])
-        node_similarity = probs[torch.arange(n_samples), pseudo_labels].mean().item()
-        
-        progress_print(f"    自适应温度 Node Similarity = {node_similarity:.4f}")
-        progress_print(f"    (实例级标准化，跨架构尺度不变)")
+        # 输出详细统计信息
+        progress_print(f"    Logits 统计:")
+        progress_print(f"      max_logits: mean={max_logits.mean().item():.4f}, std={max_logits.std().item():.4f}")
+        progress_print(f"      mean_logits: mean={mean_logits.mean().item():.4f}, std={mean_logits.std().item():.4f}")
+        progress_print(f"      std_logits: mean={std_logits.mean().item():.4f}, std={std_logits.std().item():.4f}")
+        progress_print(f"    SNR-based Node Similarity = {node_similarity:.4f}")
+        progress_print(f"    (无参数，尺度不变，不受架构偏差影响)")
         
         return node_similarity
-    
-    # =========================================================================
-    # 边相似度计算 (修正后的度量)
-    # =========================================================================
     
     def compute_edge_similarity(
         self,
@@ -539,31 +478,20 @@ class VEGAOptimizedScorer:
         """
         计算边相似度
         
-        【优化 2: 度量修正】
+        【保留用于分析】
         
-        现在:
-        - textual_edges: Cosine 相似度 [K, K] (相似度度量)
-        - visual_edges: Bhattacharyya 系数 [K, K] (相似度度量)
-        
-        两者都是相似度，Pearson 相关性正确度量拓扑对齐!
-        
-        Args:
-            textual_edges: 文本边矩阵 [K, K]
-            visual_edges: 视觉边矩阵 [K, K]
-            
-        Returns:
-            (edge_similarity, pearson_corr) 元组
-            edge_similarity: s_e = (corr + 1) / 2 ∈ [0, 1]
-            pearson_corr: 原始 Pearson 相关系数
+        注意: 由于 CNN 和 ViT 的结构流形拓扑差异，
+        Edge Similarity 会引入架构偏差，默认权重为 0。
+        但仍计算并在 return_details 中输出，用于后续分析。
         """
-        progress_print("  计算边相似度...")
+        progress_print("  计算边相似度 (保留用于分析)...")
         
         textual_edges = self._to_numpy(textual_edges)
         visual_edges = self._to_numpy(visual_edges)
         
         n = textual_edges.shape[0]
         
-        # 提取上三角元素 (排除对角线)
+        # 提取上三角元素
         triu_indices = np.triu_indices(n, k=1)
         textual_vec = textual_edges[triu_indices]
         visual_vec = visual_edges[triu_indices]
@@ -572,12 +500,8 @@ class VEGAOptimizedScorer:
             progress_print("    边数不足，返回默认值 0.5", level="WARNING")
             return 0.5, 0.0
         
-        progress_print(f"    文本边统计: mean={textual_vec.mean():.4f}, std={textual_vec.std():.4f}")
-        progress_print(f"    视觉边统计: mean={visual_vec.mean():.4f}, std={visual_vec.std():.4f}")
-        
         try:
-            # Pearson 相关系数
-            corr, p_value = pearsonr(textual_vec, visual_vec)
+            corr, _ = pearsonr(textual_vec, visual_vec)
             
             if np.isnan(corr):
                 progress_print("    Pearson 相关系数为 NaN，返回默认值 0.5", level="WARNING")
@@ -586,8 +510,7 @@ class VEGAOptimizedScorer:
             # s_e = (corr + 1) / 2 映射到 [0, 1]
             edge_similarity = (corr + 1) / 2
             
-            progress_print(f"    Pearson 相关系数: {corr:.4f} (p={p_value:.4e})")
-            progress_print(f"    边相似度 s_e = (corr + 1) / 2 = {edge_similarity:.4f}")
+            progress_print(f"    边相似度 = {edge_similarity:.4f} (Pearson corr = {corr:.4f})")
             
             return edge_similarity, corr
             
@@ -595,31 +518,33 @@ class VEGAOptimizedScorer:
             logger.warning(f"Pearson 相关系数计算失败: {e}")
             return 0.5, 0.0
     
-    # =========================================================================
-    # 主计算函数
-    # =========================================================================
-    
     def compute_score(
         self,
         features: Union[np.ndarray, torch.Tensor],
         text_embeddings: Union[np.ndarray, torch.Tensor],
+        logits: Union[np.ndarray, torch.Tensor] = None,
         pseudo_labels: Union[np.ndarray, torch.Tensor] = None,
         return_details: bool = False
     ) -> Union[float, Dict]:
         """
-        计算 VEGA 迁移性分数（优化版本）
+        计算 VEGA 迁移性分数（SNR版本）
         
-        严格遵循 VEGA 框架:
-        1. 构建文本图 (Textual Graph)
-        2. 构建视觉图 (Visual Graph) - PCA + Shrinkage
-        3. 计算节点相似度 ($s_n$) - 自适应温度缩放
-        4. 计算边相似度 ($s_e$) - Bhattacharyya 系数
-        5. 融合: vega_score = node_weight * s_n + edge_weight * s_e
+        算法流程:
+        1. 计算 SNR-based Node Similarity
+           - max_logits = logits.max(dim=1)
+           - mean_logits = logits.mean(dim=1)
+           - std_logits = logits.std(dim=1)
+           - snr = (max_logits - mean_logits) / (std_logits + EPS)
+           - s_n = snr.mean()
+        2. 构建文本图和视觉图 (保留用于分析)
+        3. 计算 s_e (保留用于分析)
+        4. 返回 s = node_weight * s_n + edge_weight * s_e
         
         Args:
             features: 图像特征 [N, D]
             text_embeddings: 文本嵌入 [K, D]
-            pseudo_labels: 伪标签 [N] (可选，会自动计算)
+            logits: 原始 cosine similarities [N, K]
+            pseudo_labels: 伪标签 [N]
             return_details: 是否返回详细信息
             
         Returns:
@@ -628,19 +553,25 @@ class VEGAOptimizedScorer:
         total_start = time.time()
         
         progress_print("=" * 60)
-        progress_print("开始计算 VEGA 分数 (优化版本)")
+        progress_print("开始计算 VEGA 分数 (SNR版本)")
         progress_print(f"  PCA 维度: {self.pca_dim}")
         progress_print(f"  Shrinkage alpha: {self.shrinkage_alpha}")
         progress_print(f"  Node weight: {self.node_weight}")
         progress_print(f"  Edge weight: {self.edge_weight}")
-        progress_print("  节点相似度: 自适应温度缩放 (实例级标准化)")
-        progress_print("  边相似度: Bhattacharyya 系数 (相似度度量)")
-        progress_print("  融合: s = node_weight * s_n + edge_weight * s_e")
+        progress_print("  Node Similarity: SNR-based (无参数，尺度不变)")
+        progress_print("  s_n = mean((max_logits - mean_logits) / std_logits)")
+        progress_print("  s = node_weight * s_n + edge_weight * s_e")
         progress_print("=" * 60)
         
         # 转换为 Tensor
         visual_features = self._to_tensor(features)
         text_embeddings = self._to_tensor(text_embeddings)
+        
+        # 【关键】logits 必须提供
+        if logits is None:
+            raise ValueError("VEGASNRScorer 需要 logits 参数 (SNR-based Node Similarity)")
+        
+        logits_tensor = self._to_tensor(logits)
         
         n_samples, n_features = visual_features.shape
         n_classes = text_embeddings.shape[0]
@@ -649,55 +580,38 @@ class VEGAOptimizedScorer:
         
         # 获取伪标签
         if pseudo_labels is None:
-            # 自动计算伪标签
-            visual_normalized = self._normalize_features(visual_features)
-            text_normalized = self._normalize_features(text_embeddings)
-            cosine_similarity = visual_normalized @ text_normalized.T
-            pseudo_labels = cosine_similarity.argmax(dim=1)
+            pseudo_labels = self.compute_pseudo_labels_from_logits(logits_tensor)
         else:
             pseudo_labels = self._to_tensor(pseudo_labels).long()
         
-        # =====================================
-        # 步骤 1: 构建文本图
-        # =====================================
+        # 步骤 1: 计算 SNR-based Node Similarity
+        node_similarity = self.compute_node_similarity_snr(logits_tensor)
+        
+        # 步骤 2-4: 构建文本图和视觉图 (保留用于分析)
         textual_nodes, textual_edges = self.build_textual_graph(text_embeddings)
         
-        # =====================================
-        # 步骤 2: 构建视觉图 (PCA + Shrinkage + Bhattacharyya 系数)
-        # =====================================
+        visual_normalized = self._normalize_features(visual_features)
         class_means, class_covs, class_counts, visual_edges = self.build_visual_graph(
-            visual_features, pseudo_labels, n_classes
+            visual_normalized, pseudo_labels, n_classes
         )
         
-        # =====================================
-        # 步骤 3: 计算节点相似度 (自适应温度缩放)
-        # =====================================
-        node_similarity = self.compute_node_similarity(
-            visual_features, text_embeddings, pseudo_labels
-        )
-        
-        # =====================================
-        # 步骤 4: 计算边相似度 (Bhattacharyya 系数)
-        # =====================================
+        # 步骤 5: 计算边相似度 (保留用于分析)
         edge_similarity = 0.0
         pearson_corr = 0.0
         
         if visual_edges is not None and len(class_counts) >= 2:
             edge_similarity, pearson_corr = self.compute_edge_similarity(textual_edges, visual_edges)
         
-        # =====================================
-        # 步骤 5: 自然融合
-        # =====================================
+        # 步骤 6: 加权融合
         vega_score = self.node_weight * node_similarity + self.edge_weight * edge_similarity
         
         total_time = time.time() - total_start
         
-        # 输出结果
         progress_print("-" * 60)
         progress_print(f"VEGA 最终分数 = {vega_score:.4f}")
         progress_print(f"  节点相似度 s_n = {node_similarity:.4f} (weight={self.node_weight})")
         progress_print(f"  边相似度 s_e = {edge_similarity:.4f} (weight={self.edge_weight})")
-        progress_print(f"  s = {self.node_weight:.1f} * {node_similarity:.4f} + {self.edge_weight:.1f} * {edge_similarity:.4f}")
+        progress_print(f"  s = {self.node_weight} * {node_similarity:.4f} + {self.edge_weight} * {edge_similarity:.4f}")
         progress_print(f"  Pearson corr = {pearson_corr:.4f}")
         progress_print(f"总耗时: {total_time:.2f}s")
         progress_print("=" * 60)
@@ -718,45 +632,46 @@ class VEGAOptimizedScorer:
                 'node_weight': self.node_weight,
                 'edge_weight': self.edge_weight,
                 'bhattacharyya_coefficient': True,
-                'adaptive_temperature': True,
-                'optimization_version': 'VEGAOptimizedScorer'
+                'snr_based_node_similarity': True
             }
         
         return vega_score
 
 
-def compute_vega_score_optimized(
+def compute_vega_score_snr(
     features: Union[np.ndarray, torch.Tensor],
     text_embeddings: Union[np.ndarray, torch.Tensor],
+    logits: Union[np.ndarray, torch.Tensor],
     pseudo_labels: Union[np.ndarray, torch.Tensor] = None,
     pca_dim: int = 64,
     shrinkage_alpha: float = 0.1,
     node_weight: float = 1.0,
-    edge_weight: float = 1.0
+    edge_weight: float = 0.0
 ) -> float:
     """
-    计算 VEGA 分数的便捷函数（优化版本）
+    计算 VEGA 分数的便捷函数（SNR版本）
     
     Args:
         features: 图像特征 [N, D]
         text_embeddings: 文本嵌入 [K, D]
+        logits: 原始 cosine similarities [N, K] (必须提供)
         pseudo_labels: 伪标签 [N]
         pca_dim: PCA 降维维度 (默认 64)
         shrinkage_alpha: Shrinkage 正则化参数 (默认 0.1)
         node_weight: 节点相似度权重 (默认 1.0)
-        edge_weight: 边相似度权重 (默认 1.0)
+        edge_weight: 边相似度权重 (默认 0.0)
         
     Returns:
         VEGA 分数
     """
-    vega = VEGAOptimizedScorer(
+    vega = VEGASNRScorer(
         pca_dim=pca_dim,
         shrinkage_alpha=shrinkage_alpha,
         node_weight=node_weight,
         edge_weight=edge_weight
     )
-    return vega.compute_score(features, text_embeddings, pseudo_labels)
+    return vega.compute_score(features, text_embeddings, logits, pseudo_labels)
 
 
 # 别名
-VEGAOptimized = VEGAOptimizedScorer
+VEGASNR = VEGASNRScorer

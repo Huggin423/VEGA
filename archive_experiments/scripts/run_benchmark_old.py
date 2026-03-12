@@ -1,39 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-VEGA vs LogME Benchmark Script (Optimized V2 Version)
+VEGA vs LogME Benchmark Script (Improved Version)
 Compare VEGA and LogME methods on model selection tasks
-
-此版本使用 VEGAOptimizedScorer，严格遵循 VEGA 框架，修复数学和工程缺陷
-
-核心优化:
-
-1. 【鲁棒视觉图 (Dimensionality & Stability)】
-   - PCA 降维 (pca_dim=64) 解决 O(D³) 维度诅咒
-   - Ledoit-Wolf Shrinkage 正则化防止奇异矩阵 (NaN)
-   - 向量化 batched slogdet 实现加速
-
-2. 【边相似度度量修正 ($s_e$)】
-   - 原论文问题: Pearson 相关性计算在 Cosine Similarity 和 Bhattacharyya Distance 之间
-   - 这导致负相关 (距离 vs 相似度的悖论)
-   - 优化: 将 Bhattacharyya 距离转换为相似度系数: bh_coeff = exp(-D_B)
-   - 现在 Pearson 相关性正确度量拓扑对齐
-   - s_e = (corr + 1) / 2
-
-3. 【节点相似度的自适应温度缩放 ($s_n$)】
-   - 固定温度 (t=0.05) 不公平地惩罚不同架构的模型
-   - 优化: 在 Softmax 前应用实例级标准化
-   - scaled_cos = (cosine_similarity - mean) / (std + EPS)
-   - 这使得跨架构的尺度不变
-
-4. 【自然融合】
-   - 回到原始融合方法: vega_score = s_n + s_e
-   - 默认权重: node_weight=1.0, edge_weight=1.0
 
 Environment: Lab server /root/mxy/VEGA (symlink to SWAB data)
 
 Changelog:
-- 2026-03-11: 创建优化版本，修复 VEGA 框架的数学缺陷
+- 2026-03-06: Use VEGAScorer class from methods/baseline/vega.py
+- 2026-03-06: Add PCA whitening, diagonal covariance, vectorized computation
 """
 
 import os
@@ -55,14 +30,14 @@ warnings.filterwarnings('ignore')
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import Optimized VEGA implementation
-from methods.baseline.vega import VEGAOptimizedScorer
+# Import optimized VEGA implementation
+from methods.baseline.vega import VEGAScorer
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-CACHE_DIR = project_root / "cache_optimized_v2"
+CACHE_DIR = project_root / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 ENABLE_CACHE = True
 
@@ -129,20 +104,20 @@ def print_detail(msg, indent=2):
 # Cache System
 # ============================================================================
 
-def get_cache_key(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
-    key_str = "%s_%s_%s_optimized_v2_pca%d_n%.1f_e%.1f" % (model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+def get_cache_key(model_name, dataset_name, method):
+    key_str = "%s_%s_%s" % (model_name, dataset_name, method)
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
-def get_cache_path(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
-    cache_key = get_cache_key(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+def get_cache_path(model_name, dataset_name, method):
+    cache_key = get_cache_key(model_name, dataset_name, method)
     return CACHE_DIR / ("%s.pkl" % cache_key)
 
 
-def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def save_cache(model_name, dataset_name, method, data):
     if not ENABLE_CACHE:
         return
-    cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+    cache_path = get_cache_path(model_name, dataset_name, method)
     cache_data = {
         'model': model_name,
         'dataset': dataset_name,
@@ -155,10 +130,10 @@ def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1
     print_detail("[Cache] Saved %s result" % method, indent=4)
 
 
-def load_cache(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def load_cache(model_name, dataset_name, method):
     if not ENABLE_CACHE:
         return None
-    cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+    cache_path = get_cache_path(model_name, dataset_name, method)
     if not cache_path.exists():
         return None
     try:
@@ -307,47 +282,42 @@ def load_ground_truth_accuracy(data_dir, model_name, dataset_name):
 
 
 # ============================================================================
-# VEGA Score Computation (Optimized V2 Version)
+# VEGA Score Computation (with progress log)
 # ============================================================================
 
-def compute_vega_score_optimized(
-    img_features, 
-    text_features, 
-    model_name="",
-    pca_dim=64,
-    node_weight=1.0,
-    edge_weight=1.0
-):
+def compute_vega_score_with_progress(img_features, text_features, logits, model_name=""):
     """
-    Compute VEGA score using VEGAOptimizedScorer class
+    Compute VEGA score using optimized VEGAScorer class
     
-    核心优化:
-    1. 鲁棒视觉图 (PCA + Shrinkage)
-    2. 边相似度度量修正 (Bhattacharyya 系数)
-    3. 自适应温度缩放 (实例级标准化)
-    4. 自然融合: s = s_n + s_e
+    Optimizations:
+    1. PCA dimensionality reduction and whitening
+    2. Diagonal covariance approximation (avoids matrix inversion)
+    3. Vectorized Bhattacharyya distance computation (no double for loop)
+    4. Reused Cosine Similarity matrix
+    5. Numerical stability with epsilon
     """
-    print_detail("Computing VEGA score (优化版本 - VEGAOptimizedScorer):", indent=4)
+    print_detail("Computing VEGA score (optimized version):", indent=4)
     print_detail("- Image features: %s" % str(img_features.shape), indent=6)
     print_detail("- Text features: %s" % str(text_features.shape), indent=6)
-    print_detail("- PCA dim: %d" % pca_dim, indent=6)
-    print_detail("- Node weight: %.2f, Edge weight: %.2f" % (node_weight, edge_weight), indent=6)
+    print_detail("- Logits: %s" % str(logits.shape), indent=6)
     
     start_time = time.time()
     
     try:
-        # Use VEGAOptimizedScorer class
-        vega = VEGAOptimizedScorer(
-            pca_dim=pca_dim,
-            shrinkage_alpha=0.1,
-            node_weight=node_weight,
-            edge_weight=edge_weight
+        # Use optimized VEGAScorer class
+        vega = VEGAScorer(
+            temperature=0.05,
+            min_samples_per_class=1,
+            use_pca=True,
+            pca_dim=512,
+            pca_whiten=False
         )
         
         # Compute score with detailed results
         result = vega.compute_score(
             features=img_features,
             text_embeddings=text_features,
+            logits=logits,
             return_details=True
         )
         
@@ -357,33 +327,24 @@ def compute_vega_score_optimized(
         vega_score = result.get('score', 0.0)
         node_sim = result.get('node_similarity', 0.0)
         edge_sim = result.get('edge_similarity', 0.0)
-        pearson_corr = result.get('pearson_correlation', 0.0)
         valid_classes = result.get('valid_classes', 0)
-        original_dim = result.get('original_dim', img_features.shape[1])
+        pca_dim = result.get('pca_dim', img_features.shape[1])
         
         print_detail("VEGA total score: %.4f (time: %.2fs)" % (vega_score, elapsed), indent=4)
-        print_detail("  - Node similarity: %.4f (自适应温度缩放, weight=%.2f)" % (node_sim, node_weight), indent=6)
-        print_detail("  - Edge similarity: %.4f (Bhattacharyya 系数, weight=%.2f)" % (edge_sim, edge_weight), indent=6)
-        print_detail("  - Pearson correlation: %.4f" % pearson_corr, indent=6)
+        print_detail("  - Node similarity: %.4f" % node_sim, indent=6)
+        print_detail("  - Edge similarity: %.4f" % edge_sim, indent=6)
         print_detail("  - Valid classes: %d" % valid_classes, indent=6)
-        print_detail("  - PCA: %d -> %d" % (original_dim, pca_dim), indent=6)
+        print_detail("  - PCA dimension: %d" % pca_dim, indent=6)
         
         return_result = {
             'score': vega_score,
             'node_similarity': node_sim,
             'edge_similarity': edge_sim,
-            'pearson_correlation': pearson_corr,
             'valid_classes': valid_classes,
             'computation_time': elapsed,
             'pca_dim': pca_dim,
-            'original_dim': original_dim,
-            'node_weight': node_weight,
-            'edge_weight': edge_weight,
-            'full_covariance': True,
-            'shrinkage_alpha': 0.1,
-            'bhattacharyya_coefficient': True,
-            'adaptive_temperature': True,
-            'optimization_version': 'VEGAOptimizedScorer'
+            'diagonal_covariance': True,
+            'vectorized_computation': True
         }
         
         return vega_score, return_result
@@ -398,6 +359,22 @@ def compute_vega_score_optimized(
 def compute_logme_score(features, labels, use_true_labels=True):
     """
     Compute LogME score using LogME_official library
+    
+    Args:
+        features: Image features [N, D]
+        labels: Labels for each sample [N]
+        use_true_labels: If True, use provided labels (ground truth);
+                        If False, treat labels as pseudo-labels from model predictions
+    
+    Note:
+        LogME is originally designed for supervised transferability estimation.
+        When use_true_labels=True, it provides the THEORETICAL UPPER BOUND
+        for VLM selection, since it uses ground truth labels.
+        
+        When use_true_labels=False (using pseudo-labels from VLM predictions),
+        the results are noisy because:
+        1. VLM predictions may be incorrect (e.g., 46% error rate on cars with acc=0.54)
+        2. LogME evaluates feature quality with wrong labels, leading to unreliable results
     """
     label_type = "TRUE LABELS (Oracle)" if use_true_labels else "PSEUDO LABELS (from VLM)"
     print_detail("Computing LogME score:", indent=4)
@@ -491,20 +468,11 @@ def compute_metrics(predicted_scores, ground_truth, verbose=True):
 # Main Benchmark Function
 # ============================================================================
 
-def run_single_dataset_benchmark(
-    data_dir, 
-    dataset_name, 
-    model_list, 
-    pca_dim=64,
-    node_weight=1.0,
-    edge_weight=1.0,
-    verbose=True
-):
+def run_single_dataset_benchmark(data_dir, dataset_name, model_list, verbose=True):
     """Run benchmark on a single dataset"""
     print_subheader("Dataset: %s" % dataset_name)
     
     vega_scores = {}
-    vega_details = {}
     logme_scores = {}
     ground_truth = {}
     failed_models = []
@@ -515,7 +483,7 @@ def run_single_dataset_benchmark(
         pbar.update(1, "Processing %s..." % model_name[:25])
         print("\n  Processing model: %s" % model_name)
         
-        cached_vega = load_cache(model_name, dataset_name, 'vega', pca_dim, node_weight, edge_weight)
+        cached_vega = load_cache(model_name, dataset_name, 'vega')
         cached_logme = load_cache(model_name, dataset_name, 'logme')
         
         print_detail("Loading data...", indent=4)
@@ -567,35 +535,46 @@ def run_single_dataset_benchmark(
             logits = logits[:min_samples]
             print_detail("Using first %d samples" % min_samples, indent=6)
         
-        # VEGA (优化版本)
         if cached_vega is not None:
             vega_score = cached_vega.get('score')
-            vega_detail = cached_vega
+            vega_details = cached_vega
         else:
-            vega_score, vega_detail = compute_vega_score_optimized(
-                img_feat, text_feat, model_name,
-                pca_dim=pca_dim,
-                node_weight=node_weight,
-                edge_weight=edge_weight
-            )
+            vega_score, vega_details = compute_vega_score_with_progress(img_feat, text_feat, logits, model_name)
             if vega_score is not None:
-                save_cache(model_name, dataset_name, 'vega', vega_detail, pca_dim, node_weight, edge_weight)
+                save_cache(model_name, dataset_name, 'vega', vega_details)
         if vega_score is not None:
             vega_scores[model_name] = vega_score
-            vega_details[model_name] = vega_detail
         
-        # LogME with TRUE LABELS (Oracle)
+        # ========== LogME with TRUE LABELS (Oracle, Theoretical Upper Bound) ==========
+        # This is the correct way to use LogME - it gives the theoretical upper bound
+        # because it uses ground truth labels to evaluate feature quality
         true_labels = logits_data.get('labels')
         if true_labels is not None:
             print("\n  [LogME-Oracle] Computing with TRUE LABELS...",)
-            logme_oracle_score, _ = compute_logme_score(img_feat, true_labels, use_true_labels=True)
+            logme_oracle_score, logme_oracle_details = compute_logme_score(
+                img_feat, true_labels, use_true_labels=True)
             if logme_oracle_score is not None:
-                print_detail("LogME-Oracle: %.4f" % logme_oracle_score, indent=6)
+                print_detail("LogME-Oracle (TRUE LABELS): %.4f" % logme_oracle_score, indent=6)
         else:
             logme_oracle_score = None
+            print_detail("[!] No true labels available for LogME-Oracle", indent=4)
         
+        # ========== LogME with PSEUDO LABELS (Wrong Usage, For Comparison Only) ==========
+        # This is the WRONG way to use LogME - using VLM predictions as labels
+        # Results are noisy because VLM predictions can be wrong
+        pseudo_labels = np.argmax(logits, axis=1)
+        print("\n  [LogME-Pseudo] Computing with PSEUDO LABELS (from VLM)...")
+        logme_pseudo_score, logme_pseudo_details = compute_logme_score(
+            img_feat, pseudo_labels, use_true_labels=False)
+        if logme_pseudo_score is not None:
+            print_detail("LogME-Pseudo (PSEUDO LABELS): %.4f" % logme_pseudo_score, indent=6)
+        
+        # Store both scores for comparison
+        # For the main comparison, use LogME-Oracle (true labels) as the theoretical upper bound
         if logme_oracle_score is not None:
-            logme_scores[model_name] = logme_oracle_score
+            logme_scores[model_name] = logme_oracle_score  # Use Oracle as main LogME result
+        elif logme_pseudo_score is not None:
+            logme_scores[model_name] = logme_pseudo_score  # Fallback to pseudo if no true labels
     
     if failed_models:
         print("\n  Failed models summary (%d/%d):" % (len(failed_models), len(model_list)))
@@ -609,26 +588,9 @@ def run_single_dataset_benchmark(
     vega_metrics = compute_metrics(vega_scores, ground_truth, verbose=verbose)
     logme_metrics = compute_metrics(logme_scores, ground_truth, verbose=verbose)
     
-    # Print detailed VEGA analysis
-    print("\n" + "-" * 70)
-    print("VEGA Detailed Analysis (优化版本):")
-    print("-" * 70)
-    print("%-30s %10s %10s %10s %10s" % ("Model", "Score", "Node_sim", "Edge_sim", "Pearson"))
-    print("-" * 70)
-    for model in sorted(vega_details.keys()):
-        detail = vega_details[model]
-        print("%-30s %10.4f %10.4f %10.4f %10.4f" % (
-            model[:30], 
-            detail.get('score', 0),
-            detail.get('node_similarity', 0),
-            detail.get('edge_similarity', 0),
-            detail.get('pearson_correlation', 0)
-        ))
-    
     return {
         'dataset': dataset_name,
         'vega_scores': vega_scores,
-        'vega_details': vega_details,
         'logme_scores': logme_scores,
         'ground_truth': ground_truth,
         'vega_metrics': vega_metrics,
@@ -637,18 +599,11 @@ def run_single_dataset_benchmark(
     }
 
 
-def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def print_final_results(all_results):
     """Print final summary results"""
     print("\n" + "=" * 70)
-    print("Summary Results (优化版本 - VEGAOptimizedScorer)")
+    print("Summary Results")
     print("=" * 70)
-    print("PCA dim: %d" % pca_dim)
-    print("Node weight: %.2f, Edge weight: %.2f" % (node_weight, edge_weight))
-    print("\n核心优化:")
-    print("  1. 鲁棒视觉图: PCA + Shrinkage 防止奇异矩阵")
-    print("  2. 边相似度度量修正: Bhattacharyya 系数 (相似度)")
-    print("  3. 自适应温度缩放: 实例级标准化，跨架构尺度不变")
-    print("  4. 自然融合: s = node_weight * s_n + edge_weight * s_e")
     
     valid_vega = [r for r in all_results if 'error' not in r['vega_metrics']]
     valid_logme = [r for r in all_results if 'error' not in r['logme_metrics']]
@@ -657,12 +612,12 @@ def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.
         avg_vega_tau = np.mean([r['vega_metrics']['kendall_tau'] for r in valid_vega])
         avg_vega_spearman = np.mean([r['vega_metrics']['spearman'] for r in valid_vega])
         avg_vega_top5 = np.mean([r['vega_metrics']['top5_recall'] for r in valid_vega])
-        print("\nVEGA-Optimized (on %d datasets):" % len(valid_vega))
+        print("\nVEGA (on %d datasets):" % len(valid_vega))
         print("  Average Kendall tau: %.4f" % avg_vega_tau)
         print("  Average Spearman: %.4f" % avg_vega_spearman)
         print("  Average Top-5 Recall: %.2f" % avg_vega_top5)
     else:
-        print("\nVEGA-Optimized: No valid results")
+        print("\nVEGA: No valid results")
     
     if valid_logme:
         avg_logme_tau = np.mean([r['logme_metrics']['kendall_tau'] for r in valid_logme])
@@ -685,6 +640,13 @@ def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.
         vega_top5 = r['vega_metrics'].get('top5_recall', float('nan'))
         logme_top5 = r['logme_metrics'].get('top5_recall', float('nan'))
         print("%-25s %10.4f %10.4f %10.2f %10.2f" % (dataset, vega_tau, logme_tau, vega_top5, logme_top5))
+    
+    print("\nFailed models summary:")
+    for r in all_results:
+        if r.get('failed_models'):
+            print("  %s: %d failed" % (r['dataset'], len(r['failed_models'])))
+            for fail in r['failed_models']:
+                print("    - %s: %s" % (fail['model'], fail['reason']))
 
 
 def main():
@@ -697,74 +659,77 @@ def main():
             print("Please run this script on the server")
             return
     
-    # Configuration
-    pca_dim = 64
-    node_weight = 1.0  # 节点相似度权重
-    edge_weight = 1.0  # 边相似度权重
-    
-    # Model list
+    # ============================================================================
+    # Benchmark A: 31 CLIP family models (from VEGA paper Sec. V-A)
+    # Based on ptm_stats/class_text_feat/ and ptm_stats/logits/
+    # ============================================================================
     test_models = [
+        # ========== OpenAI CLIP (5 models) ==========
         'RN50_openai',
         'RN101_openai',
         'ViT-B-32_openai',
         'ViT-B-16_openai',
         'ViT-L-14_openai',
+        
+        # ========== LAION 400M (7 models) ==========
         'ViT-B-32_laion400m_e31',
         'ViT-B-32_laion400m_e32',
+        'ViT-B-32-quickgelu_laion400m_e32',
         'ViT-B-16_laion400m_e32',
+        'ViT-B-16-plus-240_laion400m_e32',
         'ViT-L-14_laion400m_e31',
         'ViT-L-14_laion400m_e32',
+        
+        # ========== LAION 2B (4 models) ==========
         'ViT-B-32_laion2b_e16',
         'ViT-B-32_laion2b_s34b_b79k',
         'ViT-L-14_laion2b_s32b_b82k',
         'ViT-H-14_laion2b_s32b_b79k',
+        
+        # ========== OpenAI ResNet variants (3 models) ==========
         'RN50x4_openai',
         'RN50x16_openai',
         'RN50x64_openai',
+        
+        # ========== Large-scale models (5 models) ==========
         'ViT-L-14-336_openai',
         'ViT-g-14_laion2b_s12b_b42k',
+        'ViT-g-14_laion2b_s34b_b88k',
         'coca_ViT-B-32_laion2b_s13b_b90k',
+        'coca_ViT-L-14_laion2b_s13b_b90k',
     ]
     
+    # 10 datasets (from 22 available, excluding imagenet1k and clevr_closest_object_distance)
     test_datasets = [
         'cifar100',
         'country211',
         'dtd',
         'flowers',
         'gtsrb',
+        'mnist',
         'pets',  
+        'svhn',
         'sun397',
         'fer2013',
     ]
     
     print("=" * 70)
-    print("VEGA vs LogME Benchmark (优化版本 - VEGAOptimizedScorer)")
+    print("VEGA vs LogME Benchmark (Improved Version)")
     print("=" * 70)
     print("Data directory: %s" % data_dir)
     print("Cache directory: %s" % CACHE_DIR)
-    print("PCA dimension: %d" % pca_dim)
-    print("Node weight: %.2f" % node_weight)
-    print("Edge weight: %.2f" % edge_weight)
-    print("\n此版本使用 VEGAOptimizedScorer，严格遵循 VEGA 框架:")
-    print("  1. 【鲁棒视觉图】PCA + Shrinkage 防止奇异矩阵")
-    print("  2. 【边相似度度量修正】Bhattacharyya 系数 (相似度)")
-    print("  3. 【自适应温度缩放】实例级标准化，跨架构尺度不变")
-    print("  4. 【自然融合】s = node_weight * s_n + edge_weight * s_e")
+    print("Cache enabled: %s" % ENABLE_CACHE)
+    print("Number of test models: %d" % len(test_models))
+    print("Test datasets: %s" % test_datasets)
     
     all_results = []
     for dataset in test_datasets:
-        result = run_single_dataset_benchmark(
-            data_dir, dataset, test_models,
-            pca_dim=pca_dim,
-            node_weight=node_weight,
-            edge_weight=edge_weight,
-            verbose=True
-        )
+        result = run_single_dataset_benchmark(data_dir, dataset, test_models, verbose=True)
         all_results.append(result)
     
-    print_final_results(all_results, pca_dim, node_weight, edge_weight)
+    print_final_results(all_results)
     
-    result_file = CACHE_DIR / "benchmark_results_optimized_v2.json"
+    result_file = CACHE_DIR / "benchmark_results.json"
     with open(result_file, 'w') as f:
         serializable_results = []
         for r in all_results:

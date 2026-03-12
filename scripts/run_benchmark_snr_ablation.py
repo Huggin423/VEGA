@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-VEGA vs LogME Benchmark Script (Optimized V2 Version)
+VEGA vs LogME Benchmark Script (SNR Version with Signal-to-Noise Ratio)
 Compare VEGA and LogME methods on model selection tasks
 
-此版本使用 VEGAOptimizedScorer，严格遵循 VEGA 框架，修复数学和工程缺陷
+此版本使用 VEGASNRScorer，包含以下关键改进:
 
-核心优化:
+1. 【问题诊断】
+   - 加载的 `logits` 实际上是未缩放的原始 cosine similarities (值域 [-1, 1])
+   - 对原始相似度应用 Softmax 隐式强制温度 T=1.0
+   - 这导致严重的概率坍塌 (所有 s_n ≈ 1/K = 0.01)
+   - `logit_scale` 在保存的数据中丢失
+   - 原始 cosine 幅度严重受架构偏差影响 (ResNet vs. ViT)
 
-1. 【鲁棒视觉图 (Dimensionality & Stability)】
-   - PCA 降维 (pca_dim=64) 解决 O(D³) 维度诅咒
-   - Ledoit-Wolf Shrinkage 正则化防止奇异矩阵 (NaN)
-   - 向量化 batched slogdet 实现加速
+2. 【解决方案: SNR-based Node Similarity ($s_n$)】
+   - 采用无参数、尺度不变的置信度度量
+   - 使用样本内 Z-score of maximum logit (Signal-to-Noise Ratio)
+   - 计算:
+     max_logits = logits.max(dim=1)    # [N]
+     mean_logits = logits.mean(dim=1)  # [N]
+     std_logits = logits.std(dim=1)    # [N]
+     snr = (max_logits - mean_logits) / (std_logits + EPS)
+     s_n = snr.mean()
+   - 优势: 完全不受架构偏差影响，无需温度参数
 
-2. 【边相似度度量修正 ($s_e$)】
-   - 原论文问题: Pearson 相关性计算在 Cosine Similarity 和 Bhattacharyya Distance 之间
-   - 这导致负相关 (距离 vs 相似度的悖论)
-   - 优化: 将 Bhattacharyya 距离转换为相似度系数: bh_coeff = exp(-D_B)
-   - 现在 Pearson 相关性正确度量拓扑对齐
-   - s_e = (corr + 1) / 2
+3. 【权重配置】
+   - 默认: node_weight=1.0, edge_weight=0.0
+   - 隔离 SNR 节点相似度作为主要预测器
 
-3. 【节点相似度的自适应温度缩放 ($s_n$)】
-   - 固定温度 (t=0.05) 不公平地惩罚不同架构的模型
-   - 优化: 在 Softmax 前应用实例级标准化
-   - scaled_cos = (cosine_similarity - mean) / (std + EPS)
-   - 这使得跨架构的尺度不变
-
-4. 【自然融合】
-   - 回到原始融合方法: vega_score = s_n + s_e
-   - 默认权重: node_weight=1.0, edge_weight=1.0
+4. 【保留视觉图逻辑】
+   - PCA、Shrinkage 协方差、向量化 Bhattacharyya 系数保持不变
+   - $s_e$ 仍在 return_details 中输出，用于后续分析
 
 Environment: Lab server /root/mxy/VEGA (symlink to SWAB data)
 
 Changelog:
-- 2026-03-11: 创建优化版本，修复 VEGA 框架的数学缺陷
+- 2026-03-11: 创建 SNR 版本，使用 Signal-to-Noise Ratio
 """
 
 import os
@@ -55,14 +57,14 @@ warnings.filterwarnings('ignore')
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import Optimized VEGA implementation
-from methods.baseline.vega import VEGAOptimizedScorer
+# Import SNR VEGA implementation
+from methods.baseline.vega_snr_ablation import VEGASNRScorer
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-CACHE_DIR = project_root / "cache_optimized_v2"
+CACHE_DIR = project_root / "cache_snr"
 CACHE_DIR.mkdir(exist_ok=True)
 ENABLE_CACHE = True
 
@@ -129,17 +131,17 @@ def print_detail(msg, indent=2):
 # Cache System
 # ============================================================================
 
-def get_cache_key(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
-    key_str = "%s_%s_%s_optimized_v2_pca%d_n%.1f_e%.1f" % (model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+def get_cache_key(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=0.0):
+    key_str = "%s_%s_%s_snr_pca%d_n%.1f_e%.1f" % (model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
-def get_cache_path(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def get_cache_path(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=0.0):
     cache_key = get_cache_key(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
     return CACHE_DIR / ("%s.pkl" % cache_key)
 
 
-def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1.0, edge_weight=0.0):
     if not ENABLE_CACHE:
         return
     cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
@@ -155,7 +157,7 @@ def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1
     print_detail("[Cache] Saved %s result" % method, indent=4)
 
 
-def load_cache(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def load_cache(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=0.0):
     if not ENABLE_CACHE:
         return None
     cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
@@ -307,37 +309,47 @@ def load_ground_truth_accuracy(data_dir, model_name, dataset_name):
 
 
 # ============================================================================
-# VEGA Score Computation (Optimized V2 Version)
+# VEGA Score Computation (SNR Version with Signal-to-Noise Ratio)
 # ============================================================================
 
-def compute_vega_score_optimized(
+def compute_vega_score_snr(
     img_features, 
     text_features, 
+    logits, 
     model_name="",
     pca_dim=64,
     node_weight=1.0,
-    edge_weight=1.0
+    edge_weight=0.0
 ):
     """
-    Compute VEGA score using VEGAOptimizedScorer class
+    Compute VEGA score using SNR VEGASNRScorer class
     
-    核心优化:
-    1. 鲁棒视觉图 (PCA + Shrinkage)
-    2. 边相似度度量修正 (Bhattacharyya 系数)
-    3. 自适应温度缩放 (实例级标准化)
-    4. 自然融合: s = s_n + s_e
+    关键改进:
+    1. SNR-based Node Similarity
+       - 无参数、尺度不变的置信度度量
+       - s_n = mean((max_logits - mean_logits) / std_logits)
+       - 不受架构偏差影响，无需温度参数
+    
+    2. 权重配置
+       - 默认 node_weight=1.0, edge_weight=0.0
+       - Edge Similarity 因架构偏差问题被禁用
+    
+    3. 保留视觉图逻辑
+       - PCA、Shrinkage、Bhattacharyya 系数保持不变
+       - s_e 仍在 return_details 中输出
     """
-    print_detail("Computing VEGA score (优化版本 - VEGAOptimizedScorer):", indent=4)
+    print_detail("Computing VEGA score (SNR版本 - VEGASNRScorer):", indent=4)
     print_detail("- Image features: %s" % str(img_features.shape), indent=6)
     print_detail("- Text features: %s" % str(text_features.shape), indent=6)
+    print_detail("- Logits: %s (raw cosine similarities)" % str(logits.shape), indent=6)
     print_detail("- PCA dim: %d" % pca_dim, indent=6)
     print_detail("- Node weight: %.2f, Edge weight: %.2f" % (node_weight, edge_weight), indent=6)
     
     start_time = time.time()
     
     try:
-        # Use VEGAOptimizedScorer class
-        vega = VEGAOptimizedScorer(
+        # Use SNR VEGASNRScorer class
+        vega = VEGASNRScorer(
             pca_dim=pca_dim,
             shrinkage_alpha=0.1,
             node_weight=node_weight,
@@ -348,6 +360,7 @@ def compute_vega_score_optimized(
         result = vega.compute_score(
             features=img_features,
             text_embeddings=text_features,
+            logits=logits,
             return_details=True
         )
         
@@ -362,7 +375,7 @@ def compute_vega_score_optimized(
         original_dim = result.get('original_dim', img_features.shape[1])
         
         print_detail("VEGA total score: %.4f (time: %.2fs)" % (vega_score, elapsed), indent=4)
-        print_detail("  - Node similarity: %.4f (自适应温度缩放, weight=%.2f)" % (node_sim, node_weight), indent=6)
+        print_detail("  - Node similarity: %.4f (SNR-based, weight=%.2f)" % (node_sim, node_weight), indent=6)
         print_detail("  - Edge similarity: %.4f (Bhattacharyya 系数, weight=%.2f)" % (edge_sim, edge_weight), indent=6)
         print_detail("  - Pearson correlation: %.4f" % pearson_corr, indent=6)
         print_detail("  - Valid classes: %d" % valid_classes, indent=6)
@@ -382,8 +395,7 @@ def compute_vega_score_optimized(
             'full_covariance': True,
             'shrinkage_alpha': 0.1,
             'bhattacharyya_coefficient': True,
-            'adaptive_temperature': True,
-            'optimization_version': 'VEGAOptimizedScorer'
+            'snr_based_node_similarity': True
         }
         
         return vega_score, return_result
@@ -497,7 +509,7 @@ def run_single_dataset_benchmark(
     model_list, 
     pca_dim=64,
     node_weight=1.0,
-    edge_weight=1.0,
+    edge_weight=0.0,
     verbose=True
 ):
     """Run benchmark on a single dataset"""
@@ -567,13 +579,13 @@ def run_single_dataset_benchmark(
             logits = logits[:min_samples]
             print_detail("Using first %d samples" % min_samples, indent=6)
         
-        # VEGA (优化版本)
+        # VEGA (SNR版本 - Signal-to-Noise Ratio)
         if cached_vega is not None:
             vega_score = cached_vega.get('score')
             vega_detail = cached_vega
         else:
-            vega_score, vega_detail = compute_vega_score_optimized(
-                img_feat, text_feat, model_name,
+            vega_score, vega_detail = compute_vega_score_snr(
+                img_feat, text_feat, logits, model_name,
                 pca_dim=pca_dim,
                 node_weight=node_weight,
                 edge_weight=edge_weight
@@ -611,7 +623,7 @@ def run_single_dataset_benchmark(
     
     # Print detailed VEGA analysis
     print("\n" + "-" * 70)
-    print("VEGA Detailed Analysis (优化版本):")
+    print("VEGA Detailed Analysis (SNR版本):")
     print("-" * 70)
     print("%-30s %10s %10s %10s %10s" % ("Model", "Score", "Node_sim", "Edge_sim", "Pearson"))
     print("-" * 70)
@@ -637,18 +649,21 @@ def run_single_dataset_benchmark(
     }
 
 
-def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=0.0):
     """Print final summary results"""
     print("\n" + "=" * 70)
-    print("Summary Results (优化版本 - VEGAOptimizedScorer)")
+    print("Summary Results (SNR版本 - VEGASNRScorer)")
     print("=" * 70)
     print("PCA dim: %d" % pca_dim)
     print("Node weight: %.2f, Edge weight: %.2f" % (node_weight, edge_weight))
-    print("\n核心优化:")
-    print("  1. 鲁棒视觉图: PCA + Shrinkage 防止奇异矩阵")
-    print("  2. 边相似度度量修正: Bhattacharyya 系数 (相似度)")
-    print("  3. 自适应温度缩放: 实例级标准化，跨架构尺度不变")
-    print("  4. 自然融合: s = node_weight * s_n + edge_weight * s_e")
+    print("\n关键改进:")
+    print("  1. SNR-based Node Similarity:")
+    print("     - s_n = mean((max_logits - mean_logits) / std_logits)")
+    print("     - 无参数，尺度不变，不受架构偏差影响")
+    print("  2. Edge Similarity 权重设为 0:")
+    print("     - CNN 和 ViT 的结构流形拓扑不同")
+    print("     - 避免架构偏差")
+    print("  3. s = node_weight * s_n + edge_weight * s_e")
     
     valid_vega = [r for r in all_results if 'error' not in r['vega_metrics']]
     valid_logme = [r for r in all_results if 'error' not in r['logme_metrics']]
@@ -657,12 +672,12 @@ def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.
         avg_vega_tau = np.mean([r['vega_metrics']['kendall_tau'] for r in valid_vega])
         avg_vega_spearman = np.mean([r['vega_metrics']['spearman'] for r in valid_vega])
         avg_vega_top5 = np.mean([r['vega_metrics']['top5_recall'] for r in valid_vega])
-        print("\nVEGA-Optimized (on %d datasets):" % len(valid_vega))
+        print("\nVEGA-SNR (on %d datasets):" % len(valid_vega))
         print("  Average Kendall tau: %.4f" % avg_vega_tau)
         print("  Average Spearman: %.4f" % avg_vega_spearman)
         print("  Average Top-5 Recall: %.2f" % avg_vega_top5)
     else:
-        print("\nVEGA-Optimized: No valid results")
+        print("\nVEGA-SNR: No valid results")
     
     if valid_logme:
         avg_logme_tau = np.mean([r['logme_metrics']['kendall_tau'] for r in valid_logme])
@@ -699,8 +714,8 @@ def main():
     
     # Configuration
     pca_dim = 64
-    node_weight = 1.0  # 节点相似度权重
-    edge_weight = 1.0  # 边相似度权重
+    node_weight = 1.0  # 【核心】节点相似度权重
+    edge_weight = 0.0  # 【核心】边相似度权重 (因架构偏差问题设为 0)
     
     # Model list
     test_models = [
@@ -738,18 +753,24 @@ def main():
     ]
     
     print("=" * 70)
-    print("VEGA vs LogME Benchmark (优化版本 - VEGAOptimizedScorer)")
+    print("VEGA vs LogME Benchmark (SNR版本 - VEGASNRScorer)")
     print("=" * 70)
     print("Data directory: %s" % data_dir)
     print("Cache directory: %s" % CACHE_DIR)
     print("PCA dimension: %d" % pca_dim)
     print("Node weight: %.2f" % node_weight)
     print("Edge weight: %.2f" % edge_weight)
-    print("\n此版本使用 VEGAOptimizedScorer，严格遵循 VEGA 框架:")
-    print("  1. 【鲁棒视觉图】PCA + Shrinkage 防止奇异矩阵")
-    print("  2. 【边相似度度量修正】Bhattacharyya 系数 (相似度)")
-    print("  3. 【自适应温度缩放】实例级标准化，跨架构尺度不变")
-    print("  4. 【自然融合】s = node_weight * s_n + edge_weight * s_e")
+    print("\n此版本使用 VEGASNRScorer，包含以下改进:")
+    print("  1. 【SNR-based Node Similarity】")
+    print("     - 无参数、尺度不变的置信度度量")
+    print("     - s_n = mean((max_logits - mean_logits) / std_logits)")
+    print("     - 不受架构偏差影响，无需温度参数")
+    print("  2. 【Edge Similarity 权重设为 0】")
+    print("     - CNN 和 ViT 的结构流形拓扑不同")
+    print("     - Edge Similarity 引入架构偏差")
+    print("  3. 【保留视觉图逻辑】")
+    print("     - PCA、Shrinkage、Bhattacharyya 系数保持不变")
+    print("     - s_e 仍在 return_details 中输出")
     
     all_results = []
     for dataset in test_datasets:
@@ -764,7 +785,7 @@ def main():
     
     print_final_results(all_results, pca_dim, node_weight, edge_weight)
     
-    result_file = CACHE_DIR / "benchmark_results_optimized_v2.json"
+    result_file = CACHE_DIR / "benchmark_results_snr.json"
     with open(result_file, 'w') as f:
         serializable_results = []
         for r in all_results:
