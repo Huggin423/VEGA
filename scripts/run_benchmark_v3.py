@@ -1,39 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-VEGA vs LogME Benchmark Script (Optimized V2 Version)
+VEGA vs LogME Benchmark Script (V3 Version)
 Compare VEGA and LogME methods on model selection tasks
 
-此版本使用 VEGAOptimizedScorer，严格遵循 VEGA 框架，修复数学和工程缺陷
+此版本使用 VEGAv3Scorer，严格遵循论文公式
 
-核心优化:
+核心修正:
 
-1. 【鲁棒视觉图 (Dimensionality & Stability)】
+1. 【节点相似度 ($s_n$) - 固定温度缩放】
+   - 问题: v2 的实例级 z-score 标准化抹去了绝对对齐幅度
+   - 修正: 使用论文中的固定温度 t=0.05
+   - 公式 (Eq.12):
+     cosine_sim = normalize(visual) @ normalize(text).T
+     probs = softmax(cosine_sim / t, dim=1)
+     s_n = probs[arange(N), pseudo_labels].mean() * (N / K)
+
+2. 【边相似度 ($s_e$) - 负 Bhattacharyya 距离】
+   - 问题: v2 使用 exp(-D_B) 引入非线性变换，扭曲 Pearson 相关性
+   - 修正: 直接使用负距离 visual_edge = -D_B
+   - 优势: 保持距离矩阵的线性结构，与 cosine 相似度方向一致
+
+3. 【保留 v2 的优化】
    - PCA 降维 (pca_dim=64) 解决 O(D³) 维度诅咒
-   - Ledoit-Wolf Shrinkage 正则化防止奇异矩阵 (NaN)
-   - 向量化 batched slogdet 实现加速
-
-2. 【边相似度度量修正 ($s_e$)】
-   - 原论文问题: Pearson 相关性计算在 Cosine Similarity 和 Bhattacharyya Distance 之间
-   - 这导致负相关 (距离 vs 相似度的悖论)
-   - 优化: 将 Bhattacharyya 距离转换为相似度系数: bh_coeff = exp(-D_B)
-   - 现在 Pearson 相关性正确度量拓扑对齐
-   - s_e = (corr + 1) / 2
-
-3. 【节点相似度的自适应温度缩放 ($s_n$)】
-   - 固定温度 (t=0.05) 不公平地惩罚不同架构的模型
-   - 优化: 在 Softmax 前应用实例级标准化
-   - scaled_cos = (cosine_similarity - mean) / (std + EPS)
-   - 这使得跨架构的尺度不变
-
-4. 【自然融合】
-   - 回到原始融合方法: vega_score = s_n + s_e
-   - 默认权重: node_weight=1.0, edge_weight=1.0
+   - Ledoit-Wolf Shrinkage 正则化防止奇异矩阵
+   - 向量化 batched 计算
 
 Environment: Lab server /root/mxy/VEGA (symlink to SWAB data)
 
 Changelog:
-- 2026-03-11: 创建优化版本，修复 VEGA 框架的数学缺陷
+- 2026-03-12: 创建 v3 版本，修复节点相似度和边相似度的计算
 """
 
 import os
@@ -55,14 +51,14 @@ warnings.filterwarnings('ignore')
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import Optimized VEGA implementation
-from methods.baseline.vega import VEGAOptimizedScorer
+# Import VEGA v3 implementation
+from methods.baseline.vega_v3 import VEGAv3Scorer
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-CACHE_DIR = project_root / "cache_optimized_v2"
+CACHE_DIR = project_root / "cache_v3"
 CACHE_DIR.mkdir(exist_ok=True)
 ENABLE_CACHE = True
 
@@ -72,7 +68,7 @@ ENABLE_CACHE = True
 
 class ProgressBar:
     """Simple progress bar display"""
-    
+
     def __init__(self, total, desc="Progress", width=50):
         self.total = total
         self.desc = desc
@@ -80,7 +76,7 @@ class ProgressBar:
         self.current = 0
         self.start_time = time.time()
         self.last_update = 0
-    
+
     def update(self, n=1, info=""):
         self.current += n
         elapsed = time.time() - self.start_time
@@ -98,7 +94,7 @@ class ProgressBar:
         print("\r%s" % status, end='', flush=True)
         if self.current >= self.total:
             print(" | Done: %.1fs" % elapsed)
-    
+
     def close(self):
         if self.current < self.total:
             print()
@@ -129,20 +125,20 @@ def print_detail(msg, indent=2):
 # Cache System
 # ============================================================================
 
-def get_cache_key(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
-    key_str = "%s_%s_%s_optimized_v2_pca%d_n%.1f_e%.1f" % (model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+def get_cache_key(model_name, dataset_name, method, pca_dim=64, temperature=0.05, node_weight=1.0, edge_weight=1.0):
+    key_str = "%s_%s_%s_v3_pca%d_t%.3f_n%.1f_e%.1f" % (model_name, dataset_name, method, pca_dim, temperature, node_weight, edge_weight)
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
-def get_cache_path(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
-    cache_key = get_cache_key(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+def get_cache_path(model_name, dataset_name, method, pca_dim=64, temperature=0.05, node_weight=1.0, edge_weight=1.0):
+    cache_key = get_cache_key(model_name, dataset_name, method, pca_dim, temperature, node_weight, edge_weight)
     return CACHE_DIR / ("%s.pkl" % cache_key)
 
 
-def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def save_cache(model_name, dataset_name, method, data, pca_dim=64, temperature=0.05, node_weight=1.0, edge_weight=1.0):
     if not ENABLE_CACHE:
         return
-    cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+    cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, temperature, node_weight, edge_weight)
     cache_data = {
         'model': model_name,
         'dataset': dataset_name,
@@ -155,10 +151,10 @@ def save_cache(model_name, dataset_name, method, data, pca_dim=64, node_weight=1
     print_detail("[Cache] Saved %s result" % method, indent=4)
 
 
-def load_cache(model_name, dataset_name, method, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def load_cache(model_name, dataset_name, method, pca_dim=64, temperature=0.05, node_weight=1.0, edge_weight=1.0):
     if not ENABLE_CACHE:
         return None
-    cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, node_weight, edge_weight)
+    cache_path = get_cache_path(model_name, dataset_name, method, pca_dim, temperature, node_weight, edge_weight)
     if not cache_path.exists():
         return None
     try:
@@ -307,52 +303,53 @@ def load_ground_truth_accuracy(data_dir, model_name, dataset_name):
 
 
 # ============================================================================
-# VEGA Score Computation (Optimized V2 Version)
+# VEGA Score Computation (V3 Version)
 # ============================================================================
 
-def compute_vega_score_optimized(
-    img_features, 
-    text_features, 
+def compute_vega_score_v3(
+    img_features,
+    text_features,
     model_name="",
     pca_dim=64,
+    temperature=0.05,
     node_weight=1.0,
     edge_weight=1.0
 ):
     """
-    Compute VEGA score using VEGAOptimizedScorer class
-    
-    核心优化:
-    1. 鲁棒视觉图 (PCA + Shrinkage)
-    2. 边相似度度量修正 (Bhattacharyya 系数)
-    3. 自适应温度缩放 (实例级标准化)
-    4. 自然融合: s = s_n + s_e
+    Compute VEGA score using VEGAv3Scorer class
+
+    核心修正:
+    1. 节点相似度: 固定温度缩放 (t=0.05)
+    2. 边相似度: 负 Bhattacharyya 距离
     """
-    print_detail("Computing VEGA score (优化版本 - VEGAOptimizedScorer):", indent=4)
+    print_detail("Computing VEGA score (v3版本 - VEGAv3Scorer):", indent=4)
     print_detail("- Image features: %s" % str(img_features.shape), indent=6)
     print_detail("- Text features: %s" % str(text_features.shape), indent=6)
     print_detail("- PCA dim: %d" % pca_dim, indent=6)
+    print_detail("- Temperature: %.3f" % temperature, indent=6)
     print_detail("- Node weight: %.2f, Edge weight: %.2f" % (node_weight, edge_weight), indent=6)
-    
+
     start_time = time.time()
-    
+
     try:
-        # Use VEGAOptimizedScorer class
-        vega = VEGAOptimizedScorer(
+        # Use VEGAv3Scorer class
+        vega = VEGAv3Scorer(
             pca_dim=pca_dim,
             shrinkage_alpha=0.1,
+            temperature=temperature,
             node_weight=node_weight,
             edge_weight=edge_weight
         )
-        
+
         # Compute score with detailed results
         result = vega.compute_score(
             features=img_features,
             text_embeddings=text_features,
             return_details=True
         )
-        
+
         elapsed = time.time() - start_time
-        
+
         # Extract results
         vega_score = result.get('score', 0.0)
         node_sim = result.get('node_similarity', 0.0)
@@ -360,14 +357,14 @@ def compute_vega_score_optimized(
         pearson_corr = result.get('pearson_correlation', 0.0)
         valid_classes = result.get('valid_classes', 0)
         original_dim = result.get('original_dim', img_features.shape[1])
-        
+
         print_detail("VEGA total score: %.4f (time: %.2fs)" % (vega_score, elapsed), indent=4)
-        print_detail("  - Node similarity: %.4f (自适应温度缩放, weight=%.2f)" % (node_sim, node_weight), indent=6)
-        print_detail("  - Edge similarity: %.4f (Bhattacharyya 系数, weight=%.2f)" % (edge_sim, edge_weight), indent=6)
+        print_detail("  - Node similarity: %.4f (固定温度 t=%.3f, weight=%.2f)" % (node_sim, temperature, node_weight), indent=6)
+        print_detail("  - Edge similarity: %.4f (负 Bhattacharyya 距离, weight=%.2f)" % (edge_sim, edge_weight), indent=6)
         print_detail("  - Pearson correlation: %.4f" % pearson_corr, indent=6)
         print_detail("  - Valid classes: %d" % valid_classes, indent=6)
         print_detail("  - PCA: %d -> %d" % (original_dim, pca_dim), indent=6)
-        
+
         return_result = {
             'score': vega_score,
             'node_similarity': node_sim,
@@ -377,17 +374,18 @@ def compute_vega_score_optimized(
             'computation_time': elapsed,
             'pca_dim': pca_dim,
             'original_dim': original_dim,
+            'temperature': temperature,
             'node_weight': node_weight,
             'edge_weight': edge_weight,
             'full_covariance': True,
             'shrinkage_alpha': 0.1,
-            'bhattacharyya_coefficient': True,
-            'adaptive_temperature': True,
-            'optimization_version': 'VEGAOptimizedScorer'
+            'negative_bhattacharyya_distance': True,
+            'fixed_temperature': True,
+            'optimization_version': 'VEGAv3Scorer'
         }
-        
+
         return vega_score, return_result
-        
+
     except Exception as e:
         print_detail("[!] VEGA computation error: %s" % e, indent=4)
         import traceback
@@ -404,9 +402,9 @@ def compute_logme_score(features, labels, use_true_labels=True):
     print_detail("- Features: %s" % str(features.shape), indent=6)
     print_detail("- Labels: %s (%s), unique classes: %d" % (
         str(labels.shape), label_type, len(np.unique(labels))), indent=6)
-    
+
     start_time = time.time()
-    
+
     try:
         from LogME_official.LogME import LogME as LogMEOfficial
         logme = LogMEOfficial(regression=False)
@@ -414,7 +412,7 @@ def compute_logme_score(features, labels, use_true_labels=True):
         elapsed = time.time() - start_time
         print_detail("LogME score: %.4f (time: %.2fs)" % (score, elapsed), indent=4)
         return score, {
-            'score': score, 
+            'score': score,
             'computation_time': elapsed,
             'use_true_labels': use_true_labels,
             'label_type': label_type
@@ -434,15 +432,15 @@ def compute_metrics(predicted_scores, ground_truth, verbose=True):
     """Compute evaluation metrics"""
     common_models = set(predicted_scores.keys()) & set(ground_truth.keys())
     common_models = [m for m in common_models if predicted_scores[m] is not None and ground_truth[m] is not None]
-    
+
     if len(common_models) < 3:
         if verbose:
             print_detail("[!] Insufficient valid models (%d < 3)" % len(common_models), indent=2)
         return {'error': 'Insufficient data: only %d common models' % len(common_models)}
-    
+
     pred = np.array([predicted_scores[m] for m in common_models])
     gt = np.array([ground_truth[m] for m in common_models])
-    
+
     if verbose:
         print("\n  Model ranking details (%d models):" % len(common_models))
         pred_order = np.argsort(pred)[::-1]
@@ -455,22 +453,22 @@ def compute_metrics(predicted_scores, ground_truth, verbose=True):
         for rank, idx in enumerate(gt_order):
             model = common_models[idx]
             print("    %d. %s: gt_acc=%.4f, pred=%.4f" % (rank+1, model, gt[idx], pred[idx]))
-    
+
     tau, p_value = stats.kendalltau(pred, gt)
     spearman, sp_pvalue = stats.spearmanr(pred, gt)
     pearson, pp_pvalue = stats.pearsonr(pred, gt)
-    
+
     top5_gt = set(np.argsort(gt)[-5:])
     top5_pred = set(np.argsort(pred)[-5:])
     top5_recall = len(top5_gt & top5_pred) / 5
-    
+
     top1_pred_idx = np.argmax(pred)
     top1_pred_model = common_models[top1_pred_idx]
     top1_accuracy = gt[top1_pred_idx]
-    
+
     oracle_idx = np.argmax(gt)
     oracle_accuracy = gt[oracle_idx]
-    
+
     return {
         'kendall_tau': tau,
         'kendall_p': p_value,
@@ -492,34 +490,35 @@ def compute_metrics(predicted_scores, ground_truth, verbose=True):
 # ============================================================================
 
 def run_single_dataset_benchmark(
-    data_dir, 
-    dataset_name, 
-    model_list, 
+    data_dir,
+    dataset_name,
+    model_list,
     pca_dim=64,
+    temperature=0.05,
     node_weight=1.0,
     edge_weight=1.0,
     verbose=True
 ):
     """Run benchmark on a single dataset"""
     print_subheader("Dataset: %s" % dataset_name)
-    
+
     vega_scores = {}
     vega_details = {}
     logme_scores = {}
     ground_truth = {}
     failed_models = []
-    
+
     pbar = ProgressBar(len(model_list), desc="  %s" % dataset_name)
-    
+
     for idx, model_name in enumerate(model_list):
         pbar.update(1, "Processing %s..." % model_name[:25])
         print("\n  Processing model: %s" % model_name)
-        
-        cached_vega = load_cache(model_name, dataset_name, 'vega', pca_dim, node_weight, edge_weight)
+
+        cached_vega = load_cache(model_name, dataset_name, 'vega', pca_dim, temperature, node_weight, edge_weight)
         cached_logme = load_cache(model_name, dataset_name, 'logme')
-        
+
         print_detail("Loading data...", indent=4)
-        
+
         logits_data = load_logits_data(data_dir, model_name, dataset_name)
         if logits_data is None:
             print_detail("[!] Cannot load logits", indent=4)
@@ -527,21 +526,21 @@ def run_single_dataset_benchmark(
             continue
         logits = logits_data['logits']
         print_detail("Logits: %s" % str(logits.shape), indent=6)
-        
+
         img_feat = load_image_features(data_dir, model_name, dataset_name)
         if img_feat is None:
             print_detail("[!] Cannot load image features", indent=4)
             failed_models.append({'model': model_name, 'reason': 'no image features'})
             continue
         print_detail("Image features: %s" % str(img_feat.shape), indent=6)
-        
+
         text_feat = load_text_features(data_dir, model_name, dataset_name)
         if text_feat is None:
             print_detail("[!] Cannot load text features", indent=4)
             failed_models.append({'model': model_name, 'reason': 'no text features'})
             continue
         print_detail("Text features: %s" % str(text_feat.shape), indent=6)
-        
+
         gt_acc = load_ground_truth_accuracy(data_dir, model_name, dataset_name)
         if gt_acc is None:
             print_detail("[!] Cannot load accuracy", indent=4)
@@ -549,41 +548,42 @@ def run_single_dataset_benchmark(
             continue
         ground_truth[model_name] = gt_acc
         print_detail("Ground truth accuracy: %.4f" % gt_acc, indent=6)
-        
+
         n_samples, n_classes = logits.shape
         n_text_classes = text_feat.shape[0]
-        
+
         if n_text_classes != n_classes:
             print_detail("[!] Class count mismatch: logits=%d, text_feat=%d" % (n_classes, n_text_classes), indent=4)
             min_classes = min(n_classes, n_text_classes)
             logits = logits[:, :min_classes]
             text_feat = text_feat[:min_classes]
             print_detail("Using first %d classes" % min_classes, indent=6)
-        
+
         if img_feat.shape[0] != logits.shape[0]:
             print_detail("[!] Sample count mismatch: img_feat=%d, logits=%d" % (img_feat.shape[0], logits.shape[0]), indent=4)
             min_samples = min(img_feat.shape[0], logits.shape[0])
             img_feat = img_feat[:min_samples]
             logits = logits[:min_samples]
             print_detail("Using first %d samples" % min_samples, indent=6)
-        
-        # VEGA (优化版本)
+
+        # VEGA (v3版本)
         if cached_vega is not None:
             vega_score = cached_vega.get('score')
             vega_detail = cached_vega
         else:
-            vega_score, vega_detail = compute_vega_score_optimized(
+            vega_score, vega_detail = compute_vega_score_v3(
                 img_feat, text_feat, model_name,
                 pca_dim=pca_dim,
+                temperature=temperature,
                 node_weight=node_weight,
                 edge_weight=edge_weight
             )
             if vega_score is not None:
-                save_cache(model_name, dataset_name, 'vega', vega_detail, pca_dim, node_weight, edge_weight)
+                save_cache(model_name, dataset_name, 'vega', vega_detail, pca_dim, temperature, node_weight, edge_weight)
         if vega_score is not None:
             vega_scores[model_name] = vega_score
             vega_details[model_name] = vega_detail
-        
+
         # LogME with TRUE LABELS (Oracle)
         true_labels = logits_data.get('labels')
         if true_labels is not None:
@@ -593,38 +593,38 @@ def run_single_dataset_benchmark(
                 print_detail("LogME-Oracle: %.4f" % logme_oracle_score, indent=6)
         else:
             logme_oracle_score = None
-        
+
         if logme_oracle_score is not None:
             logme_scores[model_name] = logme_oracle_score
-    
+
     if failed_models:
         print("\n  Failed models summary (%d/%d):" % (len(failed_models), len(model_list)))
         for fail in failed_models:
             print("    - %s: %s" % (fail['model'], fail['reason']))
-    
+
     print("\n" + "=" * 70)
     print("Evaluation results: %s" % dataset_name)
     print("=" * 70)
-    
+
     vega_metrics = compute_metrics(vega_scores, ground_truth, verbose=verbose)
     logme_metrics = compute_metrics(logme_scores, ground_truth, verbose=verbose)
-    
+
     # Print detailed VEGA analysis
     print("\n" + "-" * 70)
-    print("VEGA Detailed Analysis (优化版本):")
+    print("VEGA Detailed Analysis (v3版本):")
     print("-" * 70)
     print("%-30s %10s %10s %10s %10s" % ("Model", "Score", "Node_sim", "Edge_sim", "Pearson"))
     print("-" * 70)
     for model in sorted(vega_details.keys()):
         detail = vega_details[model]
         print("%-30s %10.4f %10.4f %10.4f %10.4f" % (
-            model[:30], 
+            model[:30],
             detail.get('score', 0),
             detail.get('node_similarity', 0),
             detail.get('edge_similarity', 0),
             detail.get('pearson_correlation', 0)
         ))
-    
+
     return {
         'dataset': dataset_name,
         'vega_scores': vega_scores,
@@ -637,33 +637,34 @@ def run_single_dataset_benchmark(
     }
 
 
-def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.0):
+def print_final_results(all_results, pca_dim=64, temperature=0.05, node_weight=1.0, edge_weight=1.0):
     """Print final summary results"""
     print("\n" + "=" * 70)
-    print("Summary Results (优化版本 - VEGAOptimizedScorer)")
+    print("Summary Results (v3版本 - VEGAv3Scorer)")
     print("=" * 70)
     print("PCA dim: %d" % pca_dim)
+    print("Temperature: %.3f" % temperature)
     print("Node weight: %.2f, Edge weight: %.2f" % (node_weight, edge_weight))
-    print("\n核心优化:")
-    print("  1. 鲁棒视觉图: PCA + Shrinkage 防止奇异矩阵")
-    print("  2. 边相似度度量修正: Bhattacharyya 系数 (相似度)")
-    print("  3. 自适应温度缩放: 实例级标准化，跨架构尺度不变")
-    print("  4. 自然融合: s = node_weight * s_n + edge_weight * s_e")
-    
+    print("\n核心修正:")
+    print("  1. 节点相似度: 固定温度缩放 (t=%.3f)" % temperature)
+    print("  2. 边相似度: 负 Bhattacharyya 距离 (线性结构)")
+    print("  3. 保留优化: PCA + Shrinkage + 向量化计算")
+    print("  4. 融合: s = node_weight * s_n + edge_weight * s_e")
+
     valid_vega = [r for r in all_results if 'error' not in r['vega_metrics']]
     valid_logme = [r for r in all_results if 'error' not in r['logme_metrics']]
-    
+
     if valid_vega:
         avg_vega_tau = np.mean([r['vega_metrics']['kendall_tau'] for r in valid_vega])
         avg_vega_spearman = np.mean([r['vega_metrics']['spearman'] for r in valid_vega])
         avg_vega_top5 = np.mean([r['vega_metrics']['top5_recall'] for r in valid_vega])
-        print("\nVEGA-Optimized (on %d datasets):" % len(valid_vega))
+        print("\nVEGA-v3 (on %d datasets):" % len(valid_vega))
         print("  Average Kendall tau: %.4f" % avg_vega_tau)
         print("  Average Spearman: %.4f" % avg_vega_spearman)
         print("  Average Top-5 Recall: %.2f" % avg_vega_top5)
     else:
-        print("\nVEGA-Optimized: No valid results")
-    
+        print("\nVEGA-v3: No valid results")
+
     if valid_logme:
         avg_logme_tau = np.mean([r['logme_metrics']['kendall_tau'] for r in valid_logme])
         avg_logme_spearman = np.mean([r['logme_metrics']['spearman'] for r in valid_logme])
@@ -674,7 +675,7 @@ def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.
         print("  Average Top-5 Recall: %.2f" % avg_logme_top5)
     else:
         print("\nLogME: No valid results")
-    
+
     print("\nDetailed results by dataset:")
     print("%-25s %10s %10s %10s %10s" % ("Dataset", "VEGA tau", "LogME tau", "VEGA Top5", "LogME Top5"))
     print("-" * 70)
@@ -696,12 +697,13 @@ def main():
             print("Error: Data directory not found")
             print("Please run this script on the server")
             return
-    
+
     # Configuration
     pca_dim = 64
-    node_weight = 1.0  # 节点相似度权重
-    edge_weight = 1.0  # 边相似度权重
-    
+    temperature = 0.05  # 固定温度 (论文默认值)
+    node_weight = 1.0   # 节点相似度权重
+    edge_weight = 1.0   # 边相似度权重
+
     # Model list (24 models total)
     test_models = [
         # ========== OpenAI CLIP (5 models) ==========
@@ -752,35 +754,37 @@ def main():
         'sun397',
         'fer2013',
     ]
-    
+
     print("=" * 70)
-    print("VEGA vs LogME Benchmark (优化版本 - VEGAOptimizedScorer)")
+    print("VEGA vs LogME Benchmark (v3版本 - VEGAv3Scorer)")
     print("=" * 70)
     print("Data directory: %s" % data_dir)
     print("Cache directory: %s" % CACHE_DIR)
     print("PCA dimension: %d" % pca_dim)
+    print("Temperature: %.3f" % temperature)
     print("Node weight: %.2f" % node_weight)
     print("Edge weight: %.2f" % edge_weight)
-    print("\n此版本使用 VEGAOptimizedScorer，严格遵循 VEGA 框架:")
-    print("  1. 【鲁棒视觉图】PCA + Shrinkage 防止奇异矩阵")
-    print("  2. 【边相似度度量修正】Bhattacharyya 系数 (相似度)")
-    print("  3. 【自适应温度缩放】实例级标准化，跨架构尺度不变")
-    print("  4. 【自然融合】s = node_weight * s_n + edge_weight * s_e")
-    
+    print("\n此版本使用 VEGAv3Scorer，严格遵循论文公式:")
+    print("  1. 【节点相似度】固定温度缩放 (t=%.3f)" % temperature)
+    print("  2. 【边相似度】负 Bhattacharyya 距离 (线性结构)")
+    print("  3. 【保留优化】PCA + Shrinkage + 向量化计算")
+    print("  4. 【融合】s = node_weight * s_n + edge_weight * s_e")
+
     all_results = []
     for dataset in test_datasets:
         result = run_single_dataset_benchmark(
             data_dir, dataset, test_models,
             pca_dim=pca_dim,
+            temperature=temperature,
             node_weight=node_weight,
             edge_weight=edge_weight,
             verbose=True
         )
         all_results.append(result)
-    
-    print_final_results(all_results, pca_dim, node_weight, edge_weight)
-    
-    result_file = CACHE_DIR / "benchmark_results_optimized_v2.json"
+
+    print_final_results(all_results, pca_dim, temperature, node_weight, edge_weight)
+
+    result_file = CACHE_DIR / "benchmark_results_v3.json"
     with open(result_file, 'w') as f:
         serializable_results = []
         for r in all_results:
@@ -795,7 +799,7 @@ def main():
             }
             serializable_results.append(sr)
         json.dump(serializable_results, f, indent=2)
-    
+
     print("\nResults saved to: %s" % result_file)
 
 

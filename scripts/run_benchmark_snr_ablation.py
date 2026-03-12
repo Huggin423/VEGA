@@ -717,37 +717,53 @@ def main():
     node_weight = 1.0  # 【核心】节点相似度权重
     edge_weight = 0.0  # 【核心】边相似度权重 (因架构偏差问题设为 0)
     
-    # Model list
+    # Model list (24 models total)
     test_models = [
+        # ========== OpenAI CLIP (5 models) ==========
         'RN50_openai',
         'RN101_openai',
         'ViT-B-32_openai',
         'ViT-B-16_openai',
         'ViT-L-14_openai',
+
+        # ========== LAION 400M (7 models) ==========
         'ViT-B-32_laion400m_e31',
         'ViT-B-32_laion400m_e32',
+        'ViT-B-32-quickgelu_laion400m_e32',
         'ViT-B-16_laion400m_e32',
+        'ViT-B-16-plus-240_laion400m_e32',
         'ViT-L-14_laion400m_e31',
         'ViT-L-14_laion400m_e32',
+
+        # ========== LAION 2B (4 models) ==========
         'ViT-B-32_laion2b_e16',
         'ViT-B-32_laion2b_s34b_b79k',
         'ViT-L-14_laion2b_s32b_b82k',
         'ViT-H-14_laion2b_s32b_b79k',
+
+        # ========== OpenAI ResNet variants (3 models) ==========
         'RN50x4_openai',
         'RN50x16_openai',
         'RN50x64_openai',
+
+        # ========== Large-scale models (5 models) ==========
         'ViT-L-14-336_openai',
         'ViT-g-14_laion2b_s12b_b42k',
+        'ViT-g-14_laion2b_s34b_b88k',
         'coca_ViT-B-32_laion2b_s13b_b90k',
+        'coca_ViT-L-14_laion2b_s13b_b90k',
     ]
-    
+
+    # 10 datasets (from 22 available)
     test_datasets = [
         'cifar100',
         'country211',
         'dtd',
         'flowers',
         'gtsrb',
-        'pets',  
+        'mnist',
+        'pets',
+        'svhn',
         'sun397',
         'fer2013',
     ]
