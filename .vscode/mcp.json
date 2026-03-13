@@ -1,0 +1,14 @@
+{
+    "servers":{
+        "filesystem": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                ".",
+                "D:\\实验室论文"
+            ]
+        }
+    }
+}

@@ -36,7 +36,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import Union, Optional, Dict, List, Tuple
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, kendalltau
 import logging
 import sys
 import os
@@ -756,6 +756,55 @@ def compute_vega_score_optimized(
         edge_weight=edge_weight
     )
     return vega.compute_score(features, text_embeddings, pseudo_labels)
+
+
+def compute_tau_at_k(
+    predicted_scores: Union[np.ndarray, List[float]],
+    ground_truth_scores: Union[np.ndarray, List[float]],
+    k: int = 5,
+    return_details: bool = False
+) -> Union[float, Tuple[float, float, int]]:
+    """
+    计算 Tau@K (默认 Tau@5)。
+
+    定义:
+    - 先按 ground-truth 分数选出 Top-K 模型；
+    - 再在这些模型上计算 predicted 与 ground-truth 的 Kendall tau。
+
+    Args:
+        predicted_scores: 预测分数，长度为 N
+        ground_truth_scores: 真实分数，长度为 N
+        k: Top-K 截断，默认 5
+        return_details: 是否返回 (tau_k, p_value, effective_k)
+
+    Returns:
+        tau_k，或 (tau_k, p_value, effective_k)
+    """
+    pred = np.asarray(predicted_scores, dtype=np.float64)
+    gt = np.asarray(ground_truth_scores, dtype=np.float64)
+
+    if pred.shape != gt.shape:
+        raise ValueError(f"shape mismatch: pred={pred.shape}, gt={gt.shape}")
+
+    n = pred.shape[0]
+    if n < 2:
+        if return_details:
+            return float("nan"), float("nan"), min(max(int(k), 1), n)
+        return float("nan")
+
+    effective_k = min(max(int(k), 1), n)
+    if effective_k < 2:
+        if return_details:
+            return float("nan"), float("nan"), effective_k
+        return float("nan")
+
+    # 在 ground-truth Top-K 上评估排序一致性
+    topk_idx = np.argsort(gt)[-effective_k:]
+    tau_k, p_value = kendalltau(pred[topk_idx], gt[topk_idx])
+
+    if return_details:
+        return float(tau_k), float(p_value), effective_k
+    return float(tau_k)
 
 
 # 别名

@@ -1,5 +1,6 @@
 import os
 import sys
+
 import time
 import pickle
 import hashlib
@@ -91,10 +92,10 @@ def print_metric(label, value, indent=2, format_str=".4f"):
 # Cache System
 # =============================================================================
 
-def get_cache_key(dataset_name, model_name, pca_dim, temperature, conf_threshold, 
+def get_cache_key(dataset_name, model_name, pca_dim, conf_threshold, 
                   tau_contrast, node_weight, edge_weight):
     """Generate a unique cache key based on all parameters."""
-    key_str = f"{dataset_name}_{model_name}_pca{pca_dim}_temp{temperature}_conf{conf_threshold}_tau{tau_contrast}_nw{node_weight}_ew{edge_weight}"
+    key_str = f"{dataset_name}_{model_name}_pca{pca_dim}_conf{conf_threshold}_tau{tau_contrast}_nw{node_weight}_ew{edge_weight}"
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
@@ -385,7 +386,7 @@ def load_class_names(dataset_name, data_dir=None):
 # =============================================================================
 
 def compute_vega_score_v4(image_features, text_features, class_names=None,
-                          pca_dim=64, temperature=0.05, conf_threshold=0.5,
+                          pca_dim=64, conf_threshold=0.5,
                           tau_contrast=0.1, node_weight=1.0, edge_weight=1.0,
                           verbose=True):
     """
@@ -403,7 +404,6 @@ def compute_vega_score_v4(image_features, text_features, class_names=None,
         text_features: Text embeddings (num_classes, D) or dict
         class_names: List of class name strings
         pca_dim: Target dimension after PCA
-        temperature: Temperature for probability computation
         conf_threshold: Confidence threshold for filtering high-quality samples
         tau_contrast: Contrastive temperature for edge similarity
         node_weight: Weight for node-level score
@@ -417,16 +417,15 @@ def compute_vega_score_v4(image_features, text_features, class_names=None,
         print_section("VEGA v4 Score Computation")
         print_info("Configuration", "")
         print_info("PCA dimension", pca_dim, indent=4)
-        print_info("Temperature", temperature, indent=4)
         print_info("Confidence threshold", conf_threshold, indent=4)
         print_info("Contrastive tau", tau_contrast, indent=4)
         print_info("Node weight", node_weight, indent=4)
         print_info("Edge weight", edge_weight, indent=4)
     
     # Initialize VEGAv4Scorer
+    # Note: VEGAv4Scorer does not use temperature parameter
     scorer = VEGAv4Scorer(
         pca_dim=pca_dim,
-        temperature=temperature,
         conf_threshold=conf_threshold,
         tau_contrast=tau_contrast,
         node_weight=node_weight,
@@ -555,8 +554,7 @@ def compute_metrics(predicted_scores, ground_truth_ranks, verbose=True):
 # =============================================================================
 
 def run_single_dataset_benchmark(dataset_name, model_name, 
-                                 pca_dim=64, temperature=0.05,
-                                 conf_threshold=0.5, tau_contrast=0.1,
+                                 pca_dim=64, conf_threshold=0.5, tau_contrast=0.1,
                                  node_weight=1.0, edge_weight=1.0,
                                  data_dir=None,
                                  use_cache=True, verbose=True):
@@ -567,7 +565,6 @@ def run_single_dataset_benchmark(dataset_name, model_name,
         dataset_name: Name of the dataset (e.g., 'CIFAR10', 'ImageNet')
         model_name: Name of the model (e.g., 'ViT-B-16', 'RN50')
         pca_dim: Target dimension after PCA
-        temperature: Temperature for probability computation
         conf_threshold: Confidence threshold for filtering high-quality samples
         tau_contrast: Contrastive temperature for edge similarity
         node_weight: Weight for node-level score
@@ -586,8 +583,8 @@ def run_single_dataset_benchmark(dataset_name, model_name,
     
     # Generate cache key
     cache_key = get_cache_key(
-        dataset_name, model_name, pca_dim, temperature,
-        conf_threshold, tau_contrast, node_weight, edge_weight
+        dataset_name, model_name, pca_dim, conf_threshold,
+        tau_contrast, node_weight, edge_weight
     )
     
     # Try to load from cache
@@ -670,7 +667,6 @@ def run_single_dataset_benchmark(dataset_name, model_name,
         text_features=text_features,
         class_names=class_names,
         pca_dim=pca_dim,
-        temperature=temperature,
         conf_threshold=conf_threshold,
         tau_contrast=tau_contrast,
         node_weight=node_weight,
@@ -697,7 +693,6 @@ def run_single_dataset_benchmark(dataset_name, model_name,
         'error': vega_result.get('error'),
         'config': {
             'pca_dim': pca_dim,
-            'temperature': temperature,
             'conf_threshold': conf_threshold,
             'tau_contrast': tau_contrast,
             'node_weight': node_weight,
@@ -715,8 +710,7 @@ def run_single_dataset_benchmark(dataset_name, model_name,
 
 
 def run_multi_dataset_benchmark(datasets, models=None,
-                                pca_dim=64, temperature=0.05,
-                                conf_threshold=0.5, tau_contrast=0.1,
+                                pca_dim=64, conf_threshold=0.5, tau_contrast=0.1,
                                 node_weight=1.0, edge_weight=1.0,
                                 data_dir=None,
                                 use_cache=True, verbose=True):
@@ -727,7 +721,6 @@ def run_multi_dataset_benchmark(datasets, models=None,
         datasets: List of dataset names or list of (dataset, model) tuples
         models: List of model names (if datasets are just dataset names)
         pca_dim: Target dimension after PCA
-        temperature: Temperature for probability computation
         conf_threshold: Confidence threshold for filtering high-quality samples
         tau_contrast: Contrastive temperature for edge similarity
         node_weight: Weight for node-level score
@@ -748,7 +741,6 @@ def run_multi_dataset_benchmark(datasets, models=None,
     print_info("Configuration", "")
     print_info("Data directory", str(data_dir), indent=4)
     print_info("PCA dimension", pca_dim, indent=4)
-    print_info("Temperature", temperature, indent=4)
     print_info("Confidence threshold", conf_threshold, indent=4)
     print_info("Contrastive tau", tau_contrast, indent=4)
     print_info("Node weight", node_weight, indent=4)
@@ -807,7 +799,6 @@ def run_multi_dataset_benchmark(datasets, models=None,
                 dataset_name=dataset_name,
                 model_name=model_name,
                 pca_dim=pca_dim,
-                temperature=temperature,
                 conf_threshold=conf_threshold,
                 tau_contrast=tau_contrast,
                 node_weight=node_weight,
@@ -855,7 +846,6 @@ def run_multi_dataset_benchmark(datasets, models=None,
         'summary': summary,
         'config': {
             'pca_dim': pca_dim,
-            'temperature': temperature,
             'conf_threshold': conf_threshold,
             'tau_contrast': tau_contrast,
             'node_weight': node_weight,
@@ -970,10 +960,6 @@ Examples:
         help='PCA dimension (default: 64)'
     )
     parser.add_argument(
-        '--temperature', '-t', type=float, default=0.05,
-        help='Temperature for probability computation (default: 0.05)'
-    )
-    parser.add_argument(
         '--conf-threshold', '-c', type=float, default=0.5,
         help='Confidence threshold for sample filtering (default: 0.5)'
     )
@@ -1064,7 +1050,6 @@ Examples:
             dataset_name=args.dataset,
             model_name=args.model,
             pca_dim=args.pca_dim,
-            temperature=args.temperature,
             conf_threshold=args.conf_threshold,
             tau_contrast=args.tau_contrast,
             node_weight=args.node_weight,
@@ -1096,7 +1081,6 @@ Examples:
             datasets=datasets,
             models=models,
             pca_dim=args.pca_dim,
-            temperature=args.temperature,
             conf_threshold=args.conf_threshold,
             tau_contrast=args.tau_contrast,
             node_weight=args.node_weight,

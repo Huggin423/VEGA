@@ -42,7 +42,6 @@ import torch
 import pickle
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
 from scipy import stats
 import warnings
 import time
@@ -56,15 +55,15 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import Optimized VEGA implementation
-from methods.baseline.vega_v2 import VEGAOptimizedScorer
+from methods.baseline.vega_v2 import VEGAOptimizedScorer, compute_tau_at_k
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-CACHE_DIR = project_root / "cache_optimized_v2"
+CACHE_DIR = project_root / "cache_v2"
 CACHE_DIR.mkdir(exist_ok=True)
-ENABLE_CACHE = True
+ENABLE_CACHE = False
 
 # ============================================================================
 # Progress Display Tools
@@ -314,7 +313,7 @@ def compute_vega_score_optimized(
     img_features, 
     text_features, 
     model_name="",
-    pca_dim=64,
+    pca_dim=128,
     node_weight=1.0,
     edge_weight=1.0
 ):
@@ -459,6 +458,7 @@ def compute_metrics(predicted_scores, ground_truth, verbose=True):
     tau, p_value = stats.kendalltau(pred, gt)
     spearman, sp_pvalue = stats.spearmanr(pred, gt)
     pearson, pp_pvalue = stats.pearsonr(pred, gt)
+    tau5, tau5_p, tau5_k = compute_tau_at_k(pred, gt, k=5, return_details=True)
     
     top5_gt = set(np.argsort(gt)[-5:])
     top5_pred = set(np.argsort(pred)[-5:])
@@ -474,6 +474,9 @@ def compute_metrics(predicted_scores, ground_truth, verbose=True):
     return {
         'kendall_tau': tau,
         'kendall_p': p_value,
+        'tau5': tau5,
+        'tau5_p': tau5_p,
+        'tau5_k': tau5_k,
         'spearman': spearman,
         'spearman_p': sp_pvalue,
         'pearson': pearson,
@@ -655,10 +658,12 @@ def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.
     
     if valid_vega:
         avg_vega_tau = np.mean([r['vega_metrics']['kendall_tau'] for r in valid_vega])
+        avg_vega_tau5 = np.mean([r['vega_metrics']['tau5'] for r in valid_vega])
         avg_vega_spearman = np.mean([r['vega_metrics']['spearman'] for r in valid_vega])
         avg_vega_top5 = np.mean([r['vega_metrics']['top5_recall'] for r in valid_vega])
         print("\nVEGA-Optimized (on %d datasets):" % len(valid_vega))
         print("  Average Kendall tau: %.4f" % avg_vega_tau)
+        print("  Average Tau@5 (tau5): %.4f" % avg_vega_tau5)
         print("  Average Spearman: %.4f" % avg_vega_spearman)
         print("  Average Top-5 Recall: %.2f" % avg_vega_top5)
     else:
@@ -666,39 +671,42 @@ def print_final_results(all_results, pca_dim=64, node_weight=1.0, edge_weight=1.
     
     if valid_logme:
         avg_logme_tau = np.mean([r['logme_metrics']['kendall_tau'] for r in valid_logme])
+        avg_logme_tau5 = np.mean([r['logme_metrics']['tau5'] for r in valid_logme])
         avg_logme_spearman = np.mean([r['logme_metrics']['spearman'] for r in valid_logme])
         avg_logme_top5 = np.mean([r['logme_metrics']['top5_recall'] for r in valid_logme])
         print("\nLogME (on %d datasets):" % len(valid_logme))
         print("  Average Kendall tau: %.4f" % avg_logme_tau)
+        print("  Average Tau@5 (tau5): %.4f" % avg_logme_tau5)
         print("  Average Spearman: %.4f" % avg_logme_spearman)
         print("  Average Top-5 Recall: %.2f" % avg_logme_top5)
     else:
         print("\nLogME: No valid results")
     
     print("\nDetailed results by dataset:")
-    print("%-25s %10s %10s %10s %10s" % ("Dataset", "VEGA tau", "LogME tau", "VEGA Top5", "LogME Top5"))
+    print("%-20s %10s %10s %10s %10s %10s %10s" % (
+        "Dataset", "VEGA tau", "LogME tau", "VEGA tau5", "LogME tau5", "VEGA Top5", "LogME Top5"
+    ))
     print("-" * 70)
     for r in all_results:
         dataset = r['dataset']
         vega_tau = r['vega_metrics'].get('kendall_tau', float('nan'))
         logme_tau = r['logme_metrics'].get('kendall_tau', float('nan'))
+        vega_tau5 = r['vega_metrics'].get('tau5', float('nan'))
+        logme_tau5 = r['logme_metrics'].get('tau5', float('nan'))
         vega_top5 = r['vega_metrics'].get('top5_recall', float('nan'))
         logme_top5 = r['logme_metrics'].get('top5_recall', float('nan'))
-        print("%-25s %10.4f %10.4f %10.2f %10.2f" % (dataset, vega_tau, logme_tau, vega_top5, logme_top5))
+        print("%-20s %10.4f %10.4f %10.4f %10.4f %10.2f %10.2f" % (
+            dataset, vega_tau, logme_tau, vega_tau5, logme_tau5, vega_top5, logme_top5
+        ))
 
 
 def main():
     """Main function"""
     data_dir = '/root/mxy/SWAB'
-    if not os.path.exists(data_dir):
-        data_dir = '/root/mxy/VEGA/ptm_stats'
-        if not os.path.exists(data_dir):
-            print("Error: Data directory not found")
-            print("Please run this script on the server")
-            return
+
     
     # Configuration
-    pca_dim = 64
+    pca_dim = 128  # PCA降维后的维度
     node_weight = 1.0  # 节点相似度权重
     edge_weight = 1.0  # 边相似度权重
     

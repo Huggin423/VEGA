@@ -15,15 +15,15 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from typing import Union, Optional, Dict, List, Tuple
 from scipy.stats import pearsonr
 from sklearn.covariance import LedoitWolf
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize, StandardScaler
 
-
 # Small epsilon for numerical stability
 EPS = 1e-8
-
 
 class VEGAv4Scorer:
     """
@@ -91,9 +91,7 @@ class VEGAv4Scorer:
             return x.detach().cpu().numpy()
         return np.asarray(x)
     
-    def _normalize_features(
-        self, 
-        features: Union[np.ndarray, torch.Tensor]
+    def _normalize_features(self, features: Union[np.ndarray, torch.Tensor]
     ) -> np.ndarray:
         """L2-normalize features."""
         features = self._to_numpy(features)
